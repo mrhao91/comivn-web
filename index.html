@@ -1,0 +1,70 @@
+
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ComiVN - Đọc Truyện Tranh Online</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              // Using CSS variables for dynamic theming via CMS
+              primary: 'var(--color-primary)', 
+              secondary: 'var(--color-secondary)',
+              dark: 'var(--color-dark)', 
+              darker: 'var(--color-darker)',
+              card: 'var(--color-card)',
+            },
+            fontFamily: {
+              sans: ['var(--font-family)', 'ui-sans-serif', 'system-ui'],
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      /* Default Variables (Mệnh Thổ - Earth Element Defaults) */
+      :root {
+        --color-primary: #d97706; /* Amber 600 - Vàng đất đậm */
+        --color-secondary: #78350f; /* Amber 900 - Nâu đất */
+        --color-dark: #1c1917; /* Stone 900 - Xám ấm */
+        --color-darker: #0c0a09; /* Stone 950 - Đen ấm */
+        --color-card: #292524; /* Stone 800 - Nền thẻ ấm */
+        --font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      }
+
+      /* Hide scrollbar for Chrome, Safari and Opera */
+      .no-scrollbar::-webkit-scrollbar {
+          display: none;
+      }
+      /* Hide scrollbar for IE, Edge and Firefox */
+      .no-scrollbar {
+          -ms-overflow-style: none;  /* IE and Edge */
+          scrollbar-width: none;  /* Firefox */
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.10.1",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.32.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.1",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.2",
+    "vite": "https://aistudiocdn.com/vite@^7.2.7"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-darker text-slate-200 antialiased min-h-screen font-sans transition-colors duration-300">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
