@@ -1,6 +1,6 @@
 {
   "name": "comivn-web",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@google/genai": "latest",
-    "lucide-react": "^0.294.0",
+    "lucide-react": "latest",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.0"
