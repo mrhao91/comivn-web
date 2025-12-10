@@ -19,21 +19,40 @@ interface SimpleEditorProps {
 
 const SimpleEditor: React.FC<SimpleEditorProps> = ({ value, onChange, label, height = "200px" }) => {
     const editorRef = useRef<HTMLDivElement>(null);
+    const isTyping = useRef(false);
 
     useEffect(() => {
-        if (editorRef.current && editorRef.current.innerHTML !== value) {
-             // Only update if value is significantly different to prevent cursor jumping
-             // or if editor is empty/default
-             if (value === '' || editorRef.current.innerHTML === '<br>' || !editorRef.current.innerHTML) {
-                 editorRef.current.innerHTML = value;
+        if (!editorRef.current) return;
+
+        // Logic to prevent cursor jumping when React re-renders:
+        // 1. If the value prop matches the current HTML, do nothing.
+        // 2. If the user is currently typing (focused), we prioritize their input state
+        //    to avoid interrupting the cursor, UNLESS the new value is empty (reset)
+        //    or significantly different (external update).
+        
+        const currentHtml = editorRef.current.innerHTML;
+        
+        if (value !== currentHtml) {
+             // If focused, we are conservative about updating to avoid cursor jumps
+             if (document.activeElement === editorRef.current) {
+                 // Only update if value is empty (clear) or the divergence is likely not just a keystroke lag
+                 // For now, we simply skip update if focused to allow typing flow,
+                 // assuming the parent state 'value' is just echoing back what we typed.
+                 return;
              }
+             editorRef.current.innerHTML = value;
         }
     }, [value]);
 
     const handleInput = () => {
         if (editorRef.current) {
+            isTyping.current = true;
             onChange(editorRef.current.innerHTML);
         }
+    };
+
+    const handleBlur = () => {
+        isTyping.current = false;
     };
 
     const execCmd = (command: string, value: string | undefined = undefined) => {
@@ -150,9 +169,10 @@ const SimpleEditor: React.FC<SimpleEditorProps> = ({ value, onChange, label, hei
                     ref={editorRef}
                     className="p-4 w-full outline-none text-slate-200 text-sm leading-relaxed overflow-y-auto prose prose-invert max-w-none custom-scrollbar"
                     contentEditable
+                    suppressContentEditableWarning={true}
                     onInput={handleInput}
+                    onBlur={handleBlur}
                     style={{ minHeight: height, height: height }}
-                    dangerouslySetInnerHTML={{ __html: value }} 
                 />
             </div>
             <p className="text-[10px] text-slate-500 flex justify-between">
