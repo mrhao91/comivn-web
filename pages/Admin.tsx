@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { DataProvider } from '../services/dataProvider';
 import { Comic, Genre, Chapter, Page, AdConfig, Comment, StaticPage, ThemeConfig, User } from '../types';
-import { Plus, Trash2, Edit, Save, X, LayoutDashboard, Image as ImageIcon, Tags, Book, List, Upload, LogOut, Home, MonitorPlay, MessageSquare, FileText, CheckCircle, XCircle, Settings, Palette, Globe, Users, ShieldAlert, Eye, Loader } from 'lucide-react';
+import { Plus, Trash2, Edit, Save, X, LayoutDashboard, Image as ImageIcon, Tags, Book, List, Upload, LogOut, Home, MonitorPlay, MessageSquare, FileText, CheckCircle, XCircle, Settings, Palette, Globe, Users, ShieldAlert, Eye, Loader, CheckSquare } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AuthService } from '../services/auth';
 import SimpleEditor from '../components/SimpleEditor';
@@ -114,7 +114,10 @@ const Admin: React.FC = () => {
       id: editingComicId || `comic-${Date.now()}`,
       title: comicForm.title || 'No Title', 
       slug: comicForm.slug || toSlug(comicForm.title || ''),
-      coverImage: comicForm.coverImage || '', author: comicForm.author || '', status: comicForm.status as any, genres: comicForm.genres || [], description: comicForm.description || '', views: comicForm.views || 0,
+      coverImage: comicForm.coverImage || '', 
+      author: comicForm.author || '', 
+      status: (comicForm.status === 'Hoàn thành' ? 'Hoàn thành' : 'Đang tiến hành'), // Ensure strict type
+      genres: comicForm.genres || [], description: comicForm.description || '', views: comicForm.views || 0,
       chapters: editingComicId ? (comics.find(c=>c.id===editingComicId)?.chapters||[]) : [],
       isRecommended: comicForm.isRecommended, 
       metaTitle: comicForm.metaTitle, metaDescription: comicForm.metaDescription, metaKeywords: comicForm.metaKeywords
@@ -191,7 +194,11 @@ const Admin: React.FC = () => {
                                         <td className="p-4 w-20"><img src={c.coverImage || 'https://via.placeholder.com/50'} className="w-12 h-16 object-cover rounded bg-dark border border-white/10" /></td>
                                         <td className="p-4"><div className="font-bold text-white mb-1">{c.title}</div><div className="text-xs text-slate-500">{Array.isArray(c.genres) ? c.genres.join(', ') : ''} • {c.chapters?.length || 0} chương</div></td>
                                         <td className="p-4 text-white font-bold">{c.views?.toLocaleString()}</td>
-                                        <td className="p-4"><span className="text-xs px-2 py-1 rounded bg-white/10">{c.status}</span></td>
+                                        <td className="p-4">
+                                            <span className={`text-xs px-2 py-1 rounded font-bold ${c.status === 'Hoàn thành' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                                                {c.status}
+                                            </span>
+                                        </td>
                                         <td className="p-4 text-right whitespace-nowrap">
                                             <button onClick={() => { setCurrentComic(c); setActiveView('manage-chapters'); }} className="text-xs bg-primary/20 text-primary px-3 py-1 rounded mr-2">Chapters</button>
                                             <button onClick={() => { setComicForm({...c}); setEditingComicId(c.id); setActiveView('edit-comic'); }} className="p-2 text-blue-400"><Edit size={18} /></button>
@@ -232,31 +239,75 @@ const Admin: React.FC = () => {
                     </div>
                 )}
 
-                {/* 3. COMIC EDITOR (ADD/EDIT) */}
+                {/* 3. COMIC EDITOR (ADD/EDIT) - FIX STATUS SELECTOR */}
                 {(activeView === 'add-comic' || activeView === 'edit-comic') && (
                     <div className="bg-card rounded-xl border border-white/10 p-6 max-w-4xl mx-auto">
                         <h2 className="text-xl font-bold text-white mb-6">{editingComicId ? 'Sửa Truyện' : 'Thêm Truyện'}</h2>
                         <form onSubmit={handleSubmitComic} className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <input type="text" placeholder="Tên truyện" required value={comicForm.title} onChange={handleTitleChange} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
-                                <input type="text" placeholder="Tác giả" value={comicForm.author} onChange={e => setComicForm({...comicForm, author: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
+                            {/* Improved Grid Layout */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-xs text-slate-400 mb-1 block">Tên truyện</label>
+                                    <input type="text" placeholder="Nhập tên truyện" required value={comicForm.title} onChange={handleTitleChange} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-4">
+                                     <div>
+                                        <label className="text-xs text-slate-400 mb-1 block">Tác giả</label>
+                                        <input type="text" placeholder="Tên tác giả" value={comicForm.author} onChange={e => setComicForm({...comicForm, author: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
+                                     </div>
+                                     <div>
+                                        <label className="text-xs text-slate-400 mb-1 block">Trạng thái</label>
+                                        <select 
+                                            value={comicForm.status} 
+                                            onChange={e => setComicForm({...comicForm, status: e.target.value as any})}
+                                            className="w-full bg-dark border border-white/10 rounded p-2 text-white appearance-none"
+                                        >
+                                            <option value="Đang tiến hành">Đang tiến hành</option>
+                                            <option value="Hoàn thành">Hoàn thành</option>
+                                        </select>
+                                     </div>
+                                </div>
                             </div>
-                            <div className="flex gap-2">
-                                <input type="text" placeholder="Link ảnh bìa (hoặc upload)" value={comicForm.coverImage} onChange={e => setComicForm({...comicForm, coverImage: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white"/>
-                                <button type="button" disabled={isUploading} onClick={() => coverInputRef.current?.click()} className="bg-white/10 px-4 rounded text-white">{isUploading ? <Loader className="animate-spin"/> : <Upload/>}</button>
-                                <input type="file" ref={coverInputRef} className="hidden" onChange={handleUploadCover} accept="image/*" />
-                            </div>
-                            <div className="flex flex-wrap gap-2 p-2 bg-dark rounded border border-white/10">
-                                {Array.isArray(genres) && genres.map(g => (
-                                    <label key={g.id} className="flex items-center gap-1 cursor-pointer">
-                                        <input type="checkbox" checked={comicForm.genres?.includes(g.name)} onChange={() => { const newG = comicForm.genres?.includes(g.name) ? comicForm.genres.filter(x=>x!==g.name) : [...(comicForm.genres||[]), g.name]; setComicForm({...comicForm, genres: newG}); }} />
-                                        <span className="text-sm text-slate-300">{g.name}</span>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                     <label className="text-xs text-slate-400 mb-1 block">Ảnh bìa</label>
+                                     <div className="flex gap-2">
+                                        <input type="text" placeholder="Link ảnh hoặc upload" value={comicForm.coverImage} onChange={e => setComicForm({...comicForm, coverImage: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white"/>
+                                        <button type="button" disabled={isUploading} onClick={() => coverInputRef.current?.click()} className="bg-white/10 px-4 rounded text-white hover:bg-white/20">{isUploading ? <Loader className="animate-spin" size={18}/> : <Upload size={18}/>}</button>
+                                        <input type="file" ref={coverInputRef} className="hidden" onChange={handleUploadCover} accept="image/*" />
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-4 mt-6">
+                                    <label className="flex items-center gap-2 cursor-pointer bg-white/5 px-4 py-2 rounded hover:bg-white/10">
+                                        <input type="checkbox" checked={comicForm.isRecommended} onChange={e => setComicForm({...comicForm, isRecommended: e.target.checked})} className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"/>
+                                        <span className="text-sm font-medium text-white">Đề xuất (Hot)</span>
                                     </label>
-                                ))}
+                                </div>
                             </div>
+                            
+                            <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Thể loại</label>
+                                <div className="flex flex-wrap gap-2 p-3 bg-dark rounded border border-white/10 min-h-[50px]">
+                                    {Array.isArray(genres) && genres.map(g => (
+                                        <label key={g.id} className={`flex items-center gap-1 cursor-pointer px-3 py-1 rounded-full text-xs border transition-colors ${comicForm.genres?.includes(g.name) ? 'bg-primary/20 border-primary text-primary' : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'}`}>
+                                            <input type="checkbox" className="hidden" checked={comicForm.genres?.includes(g.name)} onChange={() => { const newG = comicForm.genres?.includes(g.name) ? comicForm.genres.filter(x=>x!==g.name) : [...(comicForm.genres||[]), g.name]; setComicForm({...comicForm, genres: newG}); }} />
+                                            {comicForm.genres?.includes(g.name) && <CheckSquare size={12}/>}
+                                            <span>{g.name}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
                             <SimpleEditor value={comicForm.description || ''} onChange={v => setComicForm({...comicForm, description: v})} label="Mô tả" />
                             {renderSEOFields(comicForm, setComicForm)}
-                            <div className="flex justify-end gap-2"><button type="button" onClick={() => setActiveView('list')} className="px-4 py-2 text-slate-400">Hủy</button><button type="submit" disabled={isSaving} className="bg-primary text-white px-6 py-2 rounded font-bold">Lưu</button></div>
+                            <div className="flex justify-end gap-2 pt-4 border-t border-white/10">
+                                <button type="button" onClick={() => setActiveView('list')} className="px-6 py-2 text-slate-400 hover:text-white transition-colors">Hủy</button>
+                                <button type="submit" disabled={isSaving} className="bg-primary hover:bg-primary/90 text-white px-8 py-2 rounded font-bold shadow-lg shadow-primary/20 flex items-center gap-2">
+                                    <Save size={18}/> Lưu Truyện
+                                </button>
+                            </div>
                         </form>
                     </div>
                 )}

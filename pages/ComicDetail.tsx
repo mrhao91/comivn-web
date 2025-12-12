@@ -5,7 +5,7 @@ import { getComicById, getComics } from '../services/mockData';
 import { DataProvider } from '../services/dataProvider';
 import { summarizeComic } from '../services/geminiService';
 import { Comic, Comment } from '../types';
-import { Eye, List, BookOpen, Bot, User, Tag, ChevronLeft, ChevronRight, MessageSquare, Send, Star } from 'lucide-react';
+import { Eye, List, BookOpen, Bot, User, Tag, ChevronLeft, ChevronRight, MessageSquare, Send, Star, CheckCircle, Clock } from 'lucide-react';
 import AdDisplay from '../components/AdDisplay';
 import SEOHead from '../components/SEOHead';
 
@@ -156,11 +156,17 @@ const ComicDetail: React.FC = () => {
                 <div className="flex-grow pt-4 md:pt-12 text-center md:text-left">
                     <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">{comic.title}</h1>
                     <div className="flex flex-wrap justify-center md:justify-start items-center gap-4 text-sm text-slate-300 mb-4">
-                        <span className="flex items-center gap-1"><User size={14}/> {comic.author || 'Đang cập nhật'}</span>
-                        <span className="flex items-center gap-1"><Tag size={14}/> {comic.status}</span>
-                        <span className="flex items-center gap-1"><Eye size={14}/> {Math.floor(comic.views || 0).toLocaleString()}</span>
+                        <span className="flex items-center gap-1 bg-white/5 px-3 py-1 rounded-full"><User size={14}/> {comic.author || 'Đang cập nhật'}</span>
+                        <span className="flex items-center gap-1 bg-white/5 px-3 py-1 rounded-full"><Eye size={14}/> {Math.floor(comic.views || 0).toLocaleString()}</span>
+                        
+                        {/* Styled Status Badge */}
+                        <span className={`flex items-center gap-1 px-3 py-1 rounded-full font-bold ${comic.status === 'Hoàn thành' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'}`}>
+                            {comic.status === 'Hoàn thành' ? <CheckCircle size={14}/> : <Clock size={14}/>} 
+                            {comic.status}
+                        </span>
+
                         {comic.rating && (
-                            <span className="flex items-center gap-1 text-yellow-400">
+                            <span className="flex items-center gap-1 text-yellow-400 bg-white/5 px-3 py-1 rounded-full">
                                 <Star size={14} fill="currentColor" /> {comic.rating}
                             </span>
                         )}
@@ -168,7 +174,7 @@ const ComicDetail: React.FC = () => {
 
                     <div className="flex flex-wrap justify-center md:justify-start gap-2 mb-6">
                         {comic.genres.map(genre => (
-                            <span key={genre} className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-full text-xs text-slate-200 transition-colors cursor-pointer border border-white/5">
+                            <span key={genre} className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-full text-xs text-slate-200 transition-colors cursor-pointer border border-white/5 hover:border-primary">
                                 {genre}
                             </span>
                         ))}
@@ -177,11 +183,11 @@ const ComicDetail: React.FC = () => {
                     <div className="flex justify-center md:justify-start gap-4 mb-8">
                         {hasChapters && firstChapter ? (
                             <>
-                                <Link to={`/doc/${lastChapter?.id}`} className="bg-primary hover:bg-primary/90 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-primary/20">
+                                <Link to={`/doc/${lastChapter?.id}`} className="bg-primary hover:bg-primary/90 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-primary/20 hover:-translate-y-1">
                                     <BookOpen size={20} />
                                     Đọc Từ Đầu
                                 </Link>
-                                <Link to={`/doc/${firstChapter.id}`} className="bg-card hover:bg-card/80 text-white border border-white/10 px-6 py-3 rounded-xl font-medium flex items-center gap-2 transition-all">
+                                <Link to={`/doc/${firstChapter.id}`} className="bg-card hover:bg-card/80 text-white border border-white/10 px-6 py-3 rounded-xl font-medium flex items-center gap-2 transition-all hover:-translate-y-1">
                                     Đọc Mới Nhất
                                 </Link>
                             </>
