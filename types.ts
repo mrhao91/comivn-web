@@ -10,8 +10,11 @@ export interface Chapter {
 export interface Genre {
   id: string;
   name: string;
-  slug: string; // url friendly name e.g. "hanh-dong"
-  isShowHome?: boolean; // Toggle to show section on Homepage
+  slug: string;
+  isShowHome?: boolean;
+  metaTitle?: string;
+  metaDescription?: string;
+  metaKeywords?: string;
 }
 
 export interface Comic {
@@ -20,14 +23,12 @@ export interface Comic {
   coverImage: string;
   author: string;
   status: 'Đang tiến hành' | 'Hoàn thành';
-  genres: string[]; // Stores genre names for simplicity in this architecture
+  genres: string[];
   description: string;
-  rating: number;
   views: number;
+  rating?: number; // Added to fix build error
   chapters: Chapter[];
-  isRecommended?: boolean; // Toggle to show in "You might like" section
-  
-  // SEO Fields
+  isRecommended?: boolean;
   slug?: string;
   metaTitle?: string;
   metaDescription?: string;
@@ -54,21 +55,24 @@ export interface Comment {
     comicId: string;
     userName: string;
     content: string;
-    rating: number;
+    rating?: number; // Added to fix build error
     date: string;
-    isApproved: boolean; // Needs admin approval to show
+    isApproved: boolean;
 }
 
 export interface StaticPage {
-    slug: string; // e.g., 'dieu-khoan', 'chinh-sach', 'lien-he'
+    slug: string;
     title: string;
-    content: string; // HTML content
+    content: string;
+    metaTitle?: string;
+    metaDescription?: string;
+    metaKeywords?: string;
 }
 
 export interface ThemeConfig {
-    primaryColor: string; // Hex code
+    primaryColor: string;
     secondaryColor: string;
-    backgroundColor: string; // Hex code for dark background
+    backgroundColor: string;
     cardColor: string;
     fontFamily: 'sans' | 'serif' | 'mono';
     homeLayout: {
@@ -76,5 +80,16 @@ export interface ThemeConfig {
         showHot: boolean;
         showNew: boolean;
     };
-    footerContent?: string; // HTML content for footer info
+    footerContent?: string;
+    siteName?: string;
+    homeMetaTitle?: string;
+    homeMetaDescription?: string;
+    homeMetaKeywords?: string;
+}
+
+export interface User {
+    id: string | number;
+    username: string;
+    password?: string;
+    role: 'admin' | 'editor';
 }

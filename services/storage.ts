@@ -1,5 +1,14 @@
 
-import { Comic, Chapter, Genre, Page, AdConfig, Comment, StaticPage, ThemeConfig } from '../types';
+import { Comic, Chapter, Genre, Page, AdConfig, Comment, StaticPage, ThemeConfig, User } from '../types';
+import { 
+    SEED_COMICS, 
+    SEED_GENRES, 
+    SEED_ADS, 
+    SEED_COMMENTS, 
+    SEED_STATIC_PAGES, 
+    SEED_USERS, 
+    DEFAULT_THEME 
+} from './seedData';
 
 const STORAGE_KEY = 'comivn_data';
 const GENRE_KEY = 'comivn_genres';
@@ -8,98 +17,38 @@ const ADS_KEY = 'comivn_ads';
 const COMMENTS_KEY = 'comivn_comments';
 const STATIC_PAGES_KEY = 'comivn_static_pages';
 const THEME_KEY = 'comivn_theme';
+const USERS_KEY = 'comivn_users';
 
-// Default Theme (Mệnh Thổ - Earth)
-const DEFAULT_THEME: ThemeConfig = {
-    primaryColor: '#d97706', // Amber 600
-    secondaryColor: '#78350f', // Amber 900
-    backgroundColor: '#1c1917', // Stone 900
-    cardColor: '#292524', // Stone 800
-    fontFamily: 'sans',
-    homeLayout: {
-        showSlider: true,
-        showHot: true,
-        showNew: true
-    }
-};
+// Define the interface to help TypeScript inference
+export interface IStorageService {
+    getComics: () => Comic[];
+    saveComic: (comic: Comic) => void;
+    deleteComic: (id: string) => void;
+    getComicById: (id: string) => Comic | undefined;
+    saveChapter: (chapter: Chapter) => void;
+    deleteChapter: (chapterId: string, comicId: string) => void;
+    getChapterPages: (chapterId: string) => Page[];
+    saveChapterPages: (chapterId: string, pages: Page[]) => void;
+    getGenres: () => Genre[];
+    saveGenre: (genre: Genre) => void;
+    deleteGenre: (id: string) => void;
+    getAds: () => AdConfig[];
+    saveAd: (ad: AdConfig) => void;
+    deleteAd: (id: string) => void;
+    getComments: () => Comment[];
+    saveComment: (comment: Comment) => void;
+    deleteComment: (id: string) => void;
+    getStaticPages: () => StaticPage[];
+    getStaticPageBySlug: (slug: string) => StaticPage | undefined;
+    saveStaticPage: (page: StaticPage) => void;
+    getTheme: () => ThemeConfig;
+    saveTheme: (theme: ThemeConfig) => void;
+    getUsers: () => User[];
+    saveUser: (user: User) => void;
+    deleteUser: (id: string | number) => void;
+}
 
-// ... (Existing SEED Data - Kept for integrity)
-const SEED_GENRES: Genre[] = [
-    { id: 'g1', name: 'Hành Động', slug: 'hanh-dong', isShowHome: true },
-    { id: 'g2', name: 'Phiêu Lưu', slug: 'phieu-luu', isShowHome: false },
-    { id: 'g3', name: 'Giả Tưởng', slug: 'gia-tuong', isShowHome: true },
-    { id: 'g4', name: 'Chuyển Sinh', slug: 'chuyen-sinh', isShowHome: true },
-    { id: 'g5', name: 'Cổ Đại', slug: 'co-dai', isShowHome: false },
-    { id: 'g6', name: 'Kinh Dị', slug: 'kinh-di', isShowHome: false },
-    { id: 'g7', name: 'Hài Hước', slug: 'hai-huoc', isShowHome: false },
-    { id: 'g8', name: 'Đời Thường', slug: 'doi-thuong', isShowHome: false },
-];
-
-const SEED_ADS: AdConfig[] = [
-    {
-        id: 'ad-1',
-        position: 'home_middle',
-        imageUrl: 'https://picsum.photos/1200/200?random=ad1',
-        linkUrl: '#',
-        isActive: true,
-        title: 'Quảng cáo Banner Giữa Trang'
-    },
-    {
-        id: 'ad-2',
-        position: 'detail_sidebar',
-        imageUrl: 'https://picsum.photos/300/600?random=ad2',
-        linkUrl: '#',
-        isActive: true,
-        title: 'Quảng cáo Sidebar'
-    }
-];
-
-const SEED_COMICS: Comic[] = Array.from({ length: 12 }).map((_, index) => {
-  const id = `comic-${index + 1}`;
-  const chapterCount = Math.floor(Math.random() * 50) + 10;
-  
-  const chapters: Chapter[] = Array.from({ length: chapterCount }).map((__, cIndex) => ({
-    id: `${id}-chapter-${chapterCount - cIndex}`,
-    comicId: id,
-    number: chapterCount - cIndex,
-    title: `Chương ${chapterCount - cIndex}`,
-    updatedAt: new Date(Date.now() - cIndex * 86400000).toISOString().split('T')[0],
-  }));
-
-  const titles = [
-      "Thợ Săn Hầm Ngục", "Đại Pháp Sư Trở Lại", "Kiếm Vương Bất Tử", "Cô Gái Đến Từ Hư Vô",
-      "Học Viện Siêu Nhiên", "Sát Thủ Về Hưu", "Vị Vua Cuối Cùng", "Thế Giới Hoàn Mỹ",
-      "Đấu Phá Thương Khung", "Toàn Chức Pháp Sư", "Võ Luyện Đỉnh Phong", "Yêu Thần Ký"
-  ];
-
-  return {
-    id,
-    title: titles[index] || `Truyện Tranh #${index + 1}`,
-    coverImage: `https://picsum.photos/300/450?random=${index + 100}`,
-    author: `Tác giả ${index + 1}`,
-    status: Math.random() > 0.3 ? 'Đang tiến hành' : 'Hoàn thành',
-    genres: ['Hành Động', 'Phiêu Lưu', 'Giả Tưởng'].sort(() => 0.5 - Math.random()).slice(0, 3),
-    description: `Mô tả mặc định cho truyện ${titles[index] || index}. Nhân vật chính bắt đầu hành trình đầy gian nan...`,
-    rating: parseFloat((3 + Math.random() * 2).toFixed(1)),
-    views: Math.floor(Math.random() * 1000000),
-    chapters,
-    isRecommended: Math.random() > 0.5,
-  };
-});
-
-const SEED_COMMENTS: Comment[] = [
-    { id: 'cmt-1', comicId: 'comic-1', userName: 'Độc giả ẩn danh', content: 'Truyện hay quá, hóng chap mới!', rating: 5, date: new Date().toISOString(), isApproved: true },
-    { id: 'cmt-2', comicId: 'comic-1', userName: 'Fan Cứng', content: 'Dịch hơi chậm nhỉ admin ơi.', rating: 4, date: new Date(Date.now() - 86400000).toISOString(), isApproved: true },
-    { id: 'cmt-3', comicId: 'comic-1', userName: 'Hater', content: 'Truyện dở tệ.', rating: 1, date: new Date().toISOString(), isApproved: false },
-];
-
-const SEED_STATIC_PAGES: StaticPage[] = [
-    { slug: 'dieu-khoan', title: 'Điều Khoản Sử Dụng', content: '<p>Chào mừng bạn đến với ComiVN. Khi sử dụng website này, bạn đồng ý với các điều khoản sau...</p><ul><li>Không spam.</li><li>Tôn trọng bản quyền.</li></ul>' },
-    { slug: 'chinh-sach-rieng-tu', title: 'Chính Sách Riêng Tư', content: '<p>Chúng tôi cam kết bảo mật thông tin cá nhân của bạn. Chúng tôi không chia sẻ dữ liệu với bên thứ ba...</p>' },
-    { slug: 'lien-he', title: 'Liên Hệ', content: '<p>Mọi thắc mắc xin vui lòng liên hệ email: <strong>admin@comivn.com</strong></p><p>Hoặc số điện thoại: 0123.456.789</p>' }
-];
-
-export const StorageService = {
+export const StorageService: IStorageService = {
   getComics: (): Comic[] => {
     const data = localStorage.getItem(STORAGE_KEY);
     if (!data) {
@@ -283,7 +232,6 @@ export const StorageService = {
       localStorage.setItem(STATIC_PAGES_KEY, JSON.stringify(pages));
   },
 
-  // --- Theme Methods ---
   getTheme: (): ThemeConfig => {
       const data = localStorage.getItem(THEME_KEY);
       if (!data) {
@@ -294,5 +242,40 @@ export const StorageService = {
 
   saveTheme: (theme: ThemeConfig) => {
       localStorage.setItem(THEME_KEY, JSON.stringify(theme));
+  },
+
+  getUsers: (): User[] => {
+      const data = localStorage.getItem(USERS_KEY);
+      if (!data) {
+          localStorage.setItem(USERS_KEY, JSON.stringify(SEED_USERS));
+          return SEED_USERS;
+      }
+      return JSON.parse(data);
+  },
+  
+  saveUser: (user: User) => {
+      const users = StorageService.getUsers();
+      if (user.id) {
+          const idx = users.findIndex(u => u.id === user.id);
+          if (idx >= 0) {
+              const oldUser = users[idx];
+              users[idx] = {
+                  ...oldUser,
+                  username: user.username,
+                  role: user.role,
+                  password: user.password ? user.password : oldUser.password
+              };
+          }
+      } else {
+          user.id = Date.now();
+          users.push(user);
+      }
+      localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  },
+
+  deleteUser: (id: string | number) => {
+      const users = StorageService.getUsers();
+      const newUsers = users.filter(u => u.id !== id);
+      localStorage.setItem(USERS_KEY, JSON.stringify(newUsers));
   }
 };

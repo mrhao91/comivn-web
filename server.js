@@ -1,254 +1,227 @@
 
-const express = require('express');
-const mysql = require('mysql2');
-const cors = require('cors');
-const multer = require('multer');
-const cloudinary = require('cloudinary').v2;
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
-require('dotenv').config();
+import express from 'express';
+import mysql from 'mysql2';
+import cors from 'cors';
+import multer from 'multer';
+import dotenv from 'dotenv';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+// --- CONFIG & INIT ---
+dotenv.config();
+
+// Khởi tạo biến môi trường an toàn
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(cors());
+const PORT = process.env.PORT || 3000;
+
+// Cấu hình CORS mở rộng để tránh lỗi kết nối từ frontend
+app.use(cors({ origin: '*', optionsSuccessStatus: 200 }));
 app.use(express.json());
 
-// 1. Cấu hình Database (Aiven MySQL)
-const db = mysql.createPool({
-    host: process.env.DB_HOST,       // Lấy từ Aiven (VD: mysql-10cebc0d...)
-    user: process.env.DB_USER,       // Lấy từ Aiven (VD: avnadmin)
-    password: process.env.DB_PASSWORD, // Lấy từ Aiven
-    database: process.env.DB_NAME || 'defaultdb',
-    port: process.env.DB_PORT || 10764,
-    ssl: {
-        rejectUnauthorized: false // Aiven yêu cầu SSL
-    },
-    waitForConnections: true,
-    connectionLimit: 5, // Giới hạn connection cho gói Free
-    queueLimit: 0
-});
+// 1. Tạo thư mục uploads (Bọc Try-Catch để tránh crash server nếu không có quyền)
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+try {
+    if (!fs.existsSync(UPLOAD_DIR)) {
+        fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+        console.log('📂 Created uploads directory at:', UPLOAD_DIR);
+    }
+    // Serve file ảnh tĩnh
+    app.use('/uploads', express.static(UPLOAD_DIR));
+} catch (err) {
+    console.error("⚠️ Lỗi tạo thư mục uploads:", err.message);
+}
 
-// Kiểm tra kết nối DB
-db.getConnection((err, connection) => {
-    if (err) {
-        console.error('Lỗi kết nối Database:', err);
-    } else {
-        console.log('Đã kết nối thành công tới Aiven MySQL!');
-        connection.release();
+// 2. Cấu hình Multer (Lưu ảnh)
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        // Đảm bảo thư mục tồn tại trước khi lưu
+        if (!fs.existsSync(UPLOAD_DIR)) {
+             try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch(e){}
+        }
+        cb(null, UPLOAD_DIR); 
+    },
+    filename: function (req, file, cb) {
+        const ext = path.extname(file.originalname) || '.jpg';
+        // Tên file đơn giản, không dấu tiếng Việt
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, `img-${uniqueSuffix}${ext}`);
     }
 });
 
-// 2. Cấu hình Cloudinary (Lưu ảnh)
-cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET
+const upload = multer({ 
+    storage: storage,
+    limits: { fileSize: 10 * 1024 * 1024 } // 10MB
 });
 
-const storage = new CloudinaryStorage({
-    cloudinary: cloudinary,
-    params: {
-        folder: 'comivn_uploads',
-        allowed_formats: ['jpg', 'png', 'jpeg', 'webp'],
-    },
-});
-const upload = multer({ storage: storage });
-
-// Middleware xác thực Admin đơn giản
-const authenticateToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    if (!token) return res.sendStatus(401);
-    if (token === 'fake-jwt-token-xyz') next(); // Trong thực tế nên dùng JWT verify
-    else res.sendStatus(403);
+// --- DATABASE SETUP ---
+const dbConfig = {
+    host: process.env.DB_HOST || 'localhost',
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    port: process.env.DB_PORT || 3306,
+    waitForConnections: true,
+    connectionLimit: 10,
+    charset: 'utf8mb4'
 };
 
-// === API ROUTES ===
+if (process.env.DB_HOST && process.env.DB_HOST !== 'localhost' && process.env.DB_HOST !== '127.0.0.1') {
+    dbConfig.ssl = { rejectUnauthorized: false };
+}
 
-// Upload ảnh
-app.post('/api/upload', authenticateToken, upload.single('image'), (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    res.json({ url: req.file.path });
-});
+let db;
+const connectToDatabase = () => {
+    if (!process.env.DB_USER) {
+        console.warn("⚠️ Chưa cấu hình DB_USER. Database sẽ không hoạt động.");
+        return;
+    }
+    try {
+        db = mysql.createPool(dbConfig);
+        db.getConnection((err, conn) => {
+            if(err) console.error('❌ [DB] Lỗi kết nối:', err.message);
+            else { console.log('✅ [DB] Đã kết nối thành công'); conn.release(); }
+        });
+    } catch (e) {
+        console.error("❌ [DB] Exception:", e.message);
+    }
+};
 
-// --- COMICS ---
-app.get('/api/comics', (req, res) => {
-    db.query('SELECT * FROM comics ORDER BY updated_at DESC', (err, results) => {
-        if (err) { console.error(err); return res.status(500).json(err); }
-        // Format dữ liệu cho khớp với Frontend
-        const comics = results.map(c => ({
-            ...c,
-            genres: c.genres ? c.genres.split(',') : [],
-            isRecommended: c.isRecommended === 1,
-            // Để đơn giản, chapters sẽ load chi tiết sau hoặc join bảng nếu cần tối ưu
-            chapters: [] 
-        }));
-        res.json(comics);
+const authMiddleware = (req, res, next) => {
+    const auth = req.headers['authorization'];
+    const token = auth && auth.split(' ')[1];
+    if (token === 'fake-jwt-token-xyz') next();
+    else res.status(401).json({ error: 'Unauthorized' });
+};
+
+const safeQuery = (sql, params, res, callback) => {
+    if (!db) return res.status(503).json({ error: "Database not connected" });
+    db.query(sql, params, (err, result) => {
+        if (err) {
+            console.error("Query Error:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        callback(result);
+    });
+};
+
+// --- API ROUTES ---
+const apiRouter = express.Router();
+
+apiRouter.get('/health', (req, res) => res.json({ status: 'ok', storage: 'local-disk' }));
+
+// Auth
+apiRouter.post('/login', (req, res) => {
+    const { username, password } = req.body;
+    if (!db) return res.status(503).json({ success: false, error: "DB Error" });
+    db.query('SELECT * FROM users WHERE username = ?', [username], (err, results) => {
+        if (err || results.length === 0) return res.json({ success: false, error: "Sai thông tin đăng nhập" });
+        const user = results[0];
+        if (user.password == password) res.json({ success: true, user: { id: user.id, username: user.username, role: user.role }, token: 'fake-jwt-token-xyz' });
+        else res.json({ success: false, error: "Sai mật khẩu" });
     });
 });
 
-app.get('/api/comics/:id', (req, res) => {
-    const comicSql = 'SELECT * FROM comics WHERE id = ?';
-    const chapterSql = 'SELECT * FROM chapters WHERE comicId = ? ORDER BY number DESC';
-    
-    db.query(comicSql, [req.params.id], (err, comicRes) => {
-        if (err || comicRes.length === 0) return res.status(404).json({message: 'Not found'});
-        
-        const comic = comicRes[0];
-        comic.genres = comic.genres ? comic.genres.split(',') : [];
-        comic.isRecommended = comic.isRecommended === 1;
+// Upload API
+apiRouter.post('/upload', authMiddleware, (req, res, next) => {
+    upload.single('image')(req, res, (err) => {
+        if (err) {
+            console.error("Multer Error:", err);
+            return res.status(500).json({ error: `Lỗi Upload: ${err.message}` });
+        }
+        if (!req.file) {
+            return res.status(400).json({ error: 'Không nhận được file ảnh.' });
+        }
+        // Trả về đường dẫn
+        const relativeUrl = `/uploads/${req.file.filename}`;
+        res.json({ url: relativeUrl });
+    });
+});
 
-        db.query(chapterSql, [req.params.id], (err, chapRes) => {
-            comic.chapters = chapRes || [];
+// CRUD API
+apiRouter.get('/comics', (req, res) => safeQuery('SELECT * FROM comics ORDER BY updated_at DESC', [], res, r => res.json(r.map(c => ({...c, genres: c.genres ? c.genres.split(',') : [], isRecommended: c.isRecommended===1, chapters: []})))));
+apiRouter.get('/comics/:id', (req, res) => {
+    const p = req.params.id;
+    safeQuery('SELECT * FROM comics WHERE id=? OR slug=?', [p, p], res, (comics) => {
+        if (comics.length === 0) return res.status(404).json({message: 'Not found'});
+        const comic = comics[0];
+        comic.genres = comic.genres ? comic.genres.split(',') : [];
+        comic.isRecommended = comic.isRecommended===1;
+        safeQuery('SELECT * FROM chapters WHERE comicId=? ORDER BY number DESC', [comic.id], res, (chaps) => {
+            comic.chapters = chaps || [];
             res.json(comic);
         });
     });
 });
-
-app.post('/api/comics', authenticateToken, (req, res) => {
-    const { id, title, slug, coverImage, author, status, genres, description, rating, views, isRecommended, metaTitle, metaDescription, metaKeywords } = req.body;
-    const genresStr = Array.isArray(genres) ? genres.join(',') : genres;
-    const isRecInt = isRecommended ? 1 : 0;
-
-    const sql = `
-        INSERT INTO comics (id, title, slug, coverImage, author, status, genres, description, rating, views, isRecommended, metaTitle, metaDescription, metaKeywords)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE 
-        title=?, slug=?, coverImage=?, author=?, status=?, genres=?, description=?, rating=?, views=?, isRecommended=?, metaTitle=?, metaDescription=?, metaKeywords=?
-    `;
-    const params = [
-        id, title, slug, coverImage, author, status, genresStr, description, rating, views, isRecInt, metaTitle, metaDescription, metaKeywords,
-        title, slug, coverImage, author, status, genresStr, description, rating, views, isRecInt, metaTitle, metaDescription, metaKeywords
-    ];
-
-    db.query(sql, params, (err) => {
-        if (err) { console.error(err); return res.status(500).json(err); }
-        res.json({ message: 'Saved comic' });
-    });
+apiRouter.post('/comics', authMiddleware, (req, res) => {
+    const { id, title, slug, coverImage, author, status, genres, description, views, isRecommended, metaTitle, metaDescription, metaKeywords } = req.body;
+    const gStr = Array.isArray(genres) ? genres.join(',') : genres;
+    const isRec = isRecommended ? 1 : 0;
+    const sql = `INSERT INTO comics (id,title,slug,coverImage,author,status,genres,description,views,isRecommended,metaTitle,metaDescription,metaKeywords) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE title=?,slug=?,coverImage=?,author=?,status=?,genres=?,description=?,views=?,isRecommended=?,metaTitle=?,metaDescription=?,metaKeywords=?`;
+    const p = [id,title,slug,coverImage,author,status,gStr,description,views,isRec,metaTitle,metaDescription,metaKeywords,title,slug,coverImage,author,status,gStr,description,views,isRec,metaTitle,metaDescription,metaKeywords];
+    safeQuery(sql, p, res, () => res.json({message: 'Saved'}));
 });
+apiRouter.delete('/comics/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM comics WHERE id=?',[req.params.id],res, ()=>res.json({message:'Deleted'})));
 
-app.delete('/api/comics/:id', authenticateToken, (req, res) => {
-    db.query('DELETE FROM comics WHERE id = ?', [req.params.id], (err) => {
-        if (err) return res.status(500).json(err);
-        res.json({ message: 'Deleted' });
-    });
-});
-
-// --- CHAPTERS ---
-app.post('/api/chapters', authenticateToken, (req, res) => {
+// Chapters
+apiRouter.post('/chapters', authMiddleware, (req, res) => {
     const { id, comicId, number, title, pages } = req.body;
-    
-    // 1. Lưu Chapter info
-    const sqlChap = `INSERT INTO chapters (id, comicId, number, title) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE number=?, title=?`;
-    db.query(sqlChap, [id, comicId, number, title, number, title], (err) => {
-        if (err) { console.error(err); return res.status(500).json(err); }
-
-        // 2. Lưu Pages (Xóa cũ thêm mới)
-        db.query('DELETE FROM chapter_pages WHERE chapterId = ?', [id], (err) => {
-             if (pages && pages.length > 0) {
-                 const pageValues = pages.map(p => [id, p.imageUrl, p.pageNumber]);
-                 db.query('INSERT INTO chapter_pages (chapterId, imageUrl, pageNumber) VALUES ?', [pageValues], (err) => {
-                     if (err) return res.status(500).json(err);
-                     // Update thời gian truyện
-                     db.query('UPDATE comics SET updated_at = NOW() WHERE id = ?', [comicId]);
-                     res.json({ message: 'Chapter saved' });
-                 });
-             } else {
-                 res.json({ message: 'Chapter saved (no pages)' });
-             }
+    safeQuery('INSERT INTO chapters (id,comicId,number,title) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE number=?,title=?', [id,comicId,number,title,number,title], res, () => {
+        safeQuery('DELETE FROM chapter_pages WHERE chapterId=?', [id], res, () => {
+            if (pages?.length > 0) {
+                const vals = pages.map(p => [id, p.imageUrl, p.pageNumber]);
+                safeQuery('INSERT INTO chapter_pages (chapterId,imageUrl,pageNumber) VALUES ?', [vals], res, () => {
+                    safeQuery('UPDATE comics SET updated_at=NOW() WHERE id=?', [comicId], res, () => res.json({message:'Saved'}));
+                });
+            } else res.json({message:'Saved'});
         });
     });
 });
+apiRouter.delete('/chapters/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM chapters WHERE id=?',[req.params.id],res, ()=>res.json({message:'Deleted'})));
+apiRouter.get('/chapters/:id/pages', (req, res) => safeQuery('SELECT * FROM chapter_pages WHERE chapterId=? ORDER BY pageNumber ASC', [req.params.id], res, (r)=>res.json(r)));
 
-app.delete('/api/chapters/:id', authenticateToken, (req, res) => {
-    db.query('DELETE FROM chapters WHERE id = ?', [req.params.id], (err) => {
-        if (err) return res.status(500).json(err);
-        res.json({ message: 'Deleted' });
-    });
+// Genres & Ads & Theme
+apiRouter.get('/genres', (req, res) => safeQuery('SELECT * FROM genres', [], res, r => res.json(r.map(g=>({...g, isShowHome:g.isShowHome===1})))));
+apiRouter.post('/genres', authMiddleware, (req,res) => { const {id,name,slug,isShowHome,metaTitle,metaDescription,metaKeywords}=req.body; const s=isShowHome?1:0; safeQuery('INSERT INTO genres (id,name,slug,isShowHome,metaTitle,metaDescription,metaKeywords) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=?,slug=?,isShowHome=?,metaTitle=?,metaDescription=?,metaKeywords=?',[id,name,slug,s,metaTitle,metaDescription,metaKeywords,name,slug,s,metaTitle,metaDescription,metaKeywords],res,()=>res.json({message:'Saved'})); });
+apiRouter.delete('/genres/:id', authMiddleware, (req,res) => safeQuery('DELETE FROM genres WHERE id=?',[req.params.id],res,()=>res.json({message:'Deleted'})));
+
+apiRouter.get('/ads', (req, res) => safeQuery('SELECT * FROM ads', [], res, r => res.json(r.map(a=>({...a, isActive:a.isActive===1})))));
+apiRouter.post('/ads', authMiddleware, (req,res) => { const {id,position,imageUrl,linkUrl,isActive,title}=req.body; const a=isActive?1:0; safeQuery('INSERT INTO ads (id,position,imageUrl,linkUrl,isActive,title) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE position=?,imageUrl=?,linkUrl=?,isActive=?,title=?',[id,position,imageUrl,linkUrl,a,title,position,imageUrl,linkUrl,a,title],res,()=>res.json({message:'Saved'})); });
+apiRouter.delete('/ads/:id', authMiddleware, (req,res) => safeQuery('DELETE FROM ads WHERE id=?',[req.params.id],res,()=>res.json({message:'Deleted'})));
+
+apiRouter.get('/theme', (req,res) => safeQuery('SELECT theme_config FROM settings WHERE id=1',[],res,(r)=>res.json(r.length&&r[0].theme_config ? (typeof r[0].theme_config==='string'?JSON.parse(r[0].theme_config):r[0].theme_config):{})));
+apiRouter.post('/theme', authMiddleware, (req,res) => { const c=JSON.stringify(req.body); safeQuery('INSERT INTO settings (id,theme_config) VALUES (1,?) ON DUPLICATE KEY UPDATE theme_config=?',[c,c],res,()=>res.json({message:'Saved'})); });
+
+apiRouter.get('/static-pages', (req,res)=>safeQuery('SELECT * FROM static_pages',[],res,(r)=>res.json(r)));
+apiRouter.get('/static-pages/:slug', (req,res)=>safeQuery('SELECT * FROM static_pages WHERE slug=?',[req.params.slug],res,(r)=>{if(r.length===0)return res.status(404).json({message:'Not found'});res.json(r[0])}));
+apiRouter.post('/static-pages', authMiddleware, (req,res)=>{const{slug,title,content,metaTitle,metaDescription,metaKeywords}=req.body; safeQuery('INSERT INTO static_pages (slug,title,content,metaTitle,metaDescription,metaKeywords) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE title=?,content=?,metaTitle=?,metaDescription=?,metaKeywords=?',[slug,title,content,metaTitle,metaDescription,metaKeywords,title,content,metaTitle,metaDescription,metaKeywords],res,()=>res.json({message:'Saved'}));});
+
+apiRouter.get('/users', authMiddleware, (req, res) => safeQuery('SELECT id, username, role, created_at FROM users', [], res, r => res.json(r)));
+apiRouter.get('/comments', (req, res) => res.json([]));
+
+app.use('/v1', apiRouter);
+
+// Frontend Fallback (Rất quan trọng để tránh 404 khi f5)
+const distPath = path.join(__dirname, 'dist');
+if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
+} else {
+    // Nếu chưa có dist, trả về text để biết server đã chạy
+    app.get('/', (req, res) => res.send('Backend đã chạy ổn định! Hãy upload thư mục dist để hiển thị web.'));
+}
+
+// Global Error Handler (Chặn crash server)
+app.use((err, req, res, next) => {
+    console.error("🔥 Server Error:", err.stack);
+    res.status(500).send('Something broke!');
 });
 
-app.get('/api/chapters/:id/pages', (req, res) => {
-    db.query('SELECT * FROM chapter_pages WHERE chapterId = ? ORDER BY pageNumber ASC', [req.params.id], (err, results) => {
-        if (err) return res.status(500).json(err);
-        res.json(results);
-    });
-});
-
-// --- GENRES ---
-app.get('/api/genres', (req, res) => {
-    db.query('SELECT * FROM genres', (err, results) => {
-        if (err) return res.status(500).json(err);
-        const genres = results.map(g => ({...g, isShowHome: g.isShowHome === 1}));
-        res.json(genres);
-    });
-});
-
-app.post('/api/genres', authenticateToken, (req, res) => {
-    const { id, name, slug, isShowHome } = req.body;
-    const show = isShowHome ? 1 : 0;
-    const sql = 'INSERT INTO genres (id, name, slug, isShowHome) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=?, slug=?, isShowHome=?';
-    db.query(sql, [id, name, slug, show, name, slug, show], (err) => {
-        if (err) return res.status(500).json(err);
-        res.json({message: 'Saved'});
-    });
-});
-
-app.delete('/api/genres/:id', authenticateToken, (req, res) => {
-    db.query('DELETE FROM genres WHERE id=?', [req.params.id], (err) => {
-        if(err) return res.status(500).json(err);
-        res.json({message: 'Deleted'});
-    });
-});
-
-// --- ADS ---
-app.get('/api/ads', (req, res) => {
-    db.query('SELECT * FROM ads', (err, results) => {
-        if (err) return res.status(500).json(err);
-        const ads = results.map(a => ({...a, isActive: a.isActive === 1}));
-        res.json(ads);
-    });
-});
-
-app.post('/api/ads', authenticateToken, (req, res) => {
-    const { id, position, imageUrl, linkUrl, isActive, title } = req.body;
-    const active = isActive ? 1 : 0;
-    const sql = 'INSERT INTO ads (id, position, imageUrl, linkUrl, isActive, title) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE position=?, imageUrl=?, linkUrl=?, isActive=?, title=?';
-    db.query(sql, [id, position, imageUrl, linkUrl, active, title, position, imageUrl, linkUrl, active, title], (err) => {
-        if (err) return res.status(500).json(err);
-        res.json({message: 'Saved'});
-    });
-});
-
-app.delete('/api/ads/:id', authenticateToken, (req, res) => {
-    db.query('DELETE FROM ads WHERE id=?', [req.params.id], (err) => {
-        if(err) return res.status(500).json(err);
-        res.json({message: 'Deleted'});
-    });
-});
-
-// --- SETTINGS / THEME ---
-app.get('/api/theme', (req, res) => {
-    db.query('SELECT theme_config FROM settings WHERE id=1', (err, results) => {
-        if (err) return res.status(500).json(err);
-        if (results.length > 0 && results[0].theme_config) {
-            // MySQL JSON columns return object directly in some drivers, or string in others
-            let config = results[0].theme_config;
-            if (typeof config === 'string') config = JSON.parse(config);
-            res.json(config);
-        } else {
-            res.json({});
-        }
-    });
-});
-
-app.post('/api/theme', authenticateToken, (req, res) => {
-    const configJson = JSON.stringify(req.body);
-    db.query('INSERT INTO settings (id, theme_config) VALUES (1, ?) ON DUPLICATE KEY UPDATE theme_config=?', [configJson, configJson], (err) => {
-        if (err) return res.status(500).json(err);
-        res.json({message: 'Saved'});
-    });
-});
-
-// Chạy Server
-const PORT = process.env.PORT || 3000;
+// Start Server
 app.listen(PORT, () => {
-    console.log(`Server đang chạy tại port ${PORT}`);
+    console.log(`✅ Server running on port ${PORT}`);
+    connectToDatabase();
 });

@@ -1,0 +1,25 @@
+
+/* Default Variables (Mệnh Thổ - Earth Element Defaults) */
+:root {
+  --color-primary: #d97706; /* Amber 600 - Vàng đất đậm */
+  --color-secondary: #78350f; /* Amber 900 - Nâu đất */
+  --color-dark: #1c1917; /* Stone 900 - Xám ấm */
+  --color-darker: #0c0a09; /* Stone 950 - Đen ấm */
+  --color-card: #292524; /* Stone 800 - Nền thẻ ấm */
+  --font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+body {
+    background-color: var(--color-darker);
+    color: #e2e8f0; /* slate-200 */
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+}

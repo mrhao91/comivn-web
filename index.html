@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="vi">
   <head>
@@ -24,28 +25,7 @@
         }
       }
     </script>
-    <style>
-      /* Default Variables (Mệnh Thổ - Earth Element Defaults) */
-      :root {
-        --color-primary: #d97706; /* Amber 600 - Vàng đất đậm */
-        --color-secondary: #78350f; /* Amber 900 - Nâu đất */
-        --color-dark: #1c1917; /* Stone 900 - Xám ấm */
-        --color-darker: #0c0a09; /* Stone 950 - Đen ấm */
-        --color-card: #292524; /* Stone 800 - Nền thẻ ấm */
-        --font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      }
-
-      /* Hide scrollbar for Chrome, Safari and Opera */
-      .no-scrollbar::-webkit-scrollbar {
-          display: none;
-      }
-      /* Hide scrollbar for IE, Edge and Firefox */
-      .no-scrollbar {
-          -ms-overflow-style: none;  /* IE and Edge */
-          scrollbar-width: none;  /* Firefox */
-      }
-    </style>
-  <script type="importmap">
+    <script type="importmap">
 {
   "imports": {
     "lucide-react": "https://aistudiocdn.com/lucide-react@^0.559.0",
@@ -55,11 +35,20 @@
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.32.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
     "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.10.1",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.2"
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.2",
+    "dotenv": "https://esm.sh/dotenv@^17.2.3",
+    "mysql2": "https://esm.sh/mysql2@^3.15.3",
+    "multer": "https://esm.sh/multer@^2.0.2",
+    "express": "https://esm.sh/express@^5.2.1",
+    "cors": "https://esm.sh/cors@^2.8.5",
+    "cloudinary": "https://esm.sh/cloudinary@^2.8.0",
+    "multer-storage-cloudinary": "https://esm.sh/multer-storage-cloudinary@^4.0.0",
+    "path": "https://esm.sh/path@^0.12.7",
+    "url": "https://esm.sh/url@^0.11.4",
+    "fs": "https://esm.sh/fs@^0.0.1-security"
   }
 }
 </script>
-<link rel="stylesheet" href="/index.css">
 </head>
   <body class="bg-darker text-slate-200 antialiased min-h-screen font-sans transition-colors duration-300">
     <div id="root"></div>

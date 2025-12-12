@@ -5,8 +5,9 @@ import { getComicById, getComics } from '../services/mockData';
 import { DataProvider } from '../services/dataProvider';
 import { summarizeComic } from '../services/geminiService';
 import { Comic, Comment } from '../types';
-import { Star, Eye, List, BookOpen, Bot, User, Tag, ChevronLeft, ChevronRight, MessageSquare, Send } from 'lucide-react';
+import { Eye, List, BookOpen, Bot, User, Tag, ChevronLeft, ChevronRight, MessageSquare, Send, Star } from 'lucide-react';
 import AdDisplay from '../components/AdDisplay';
+import SEOHead from '../components/SEOHead';
 
 const ComicDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -22,35 +23,42 @@ const ComicDetail: React.FC = () => {
 
   // Comments State
   const [comments, setComments] = useState<Comment[]>([]);
-  const [newComment, setNewComment] = useState({ userName: '', content: '', rating: 5 });
+  const [newComment, setNewComment] = useState({ userName: '', content: '' });
   const [submittingComment, setSubmittingComment] = useState(false);
 
   useEffect(() => {
     const fetchComic = async () => {
         if(id) {
             setLoading(true);
-            const [currentComic, allComics, allComments] = await Promise.all([
-                getComicById(id),
-                getComics(),
-                DataProvider.getComments()
-            ]);
-            setComic(currentComic);
+            try {
+                const [currentComic, allComics, allComments] = await Promise.all([
+                    getComicById(id),
+                    getComics(),
+                    DataProvider.getComments()
+                ]);
+                
+                if (currentComic) {
+                    setComic(currentComic);
+                    // Filter recommendations
+                    const recs = allComics
+                        .filter(c => c.isRecommended && c.id !== currentComic.id)
+                        .slice(0, 18);
+                    setRecommendations(recs);
 
-            // Filter Recommendations:
-            // 1. Must be marked isRecommended
-            // 2. Not the current comic
-            // 3. Limit to 18 total (enough for 3 pages of 6)
-            const recs = allComics
-                .filter(c => c.isRecommended && c.id !== id)
-                .slice(0, 18);
-            setRecommendations(recs);
-
-            // Filter approved comments for this comic
-            const comicComments = allComments.filter(c => c.comicId === id && c.isApproved).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            setComments(comicComments);
-
-            setLoading(false);
-            window.scrollTo(0, 0); // Reset scroll
+                    // Filter comments
+                    const comicComments = allComments
+                        .filter(c => c.comicId === currentComic.id && c.isApproved)
+                        .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                    setComments(comicComments);
+                } else {
+                    setComic(undefined);
+                }
+            } catch (error) {
+                console.error("Error fetching comic details:", error);
+            } finally {
+                setLoading(false);
+                window.scrollTo(0, 0); 
+            }
         }
     };
     fetchComic();
@@ -74,34 +82,30 @@ const ComicDetail: React.FC = () => {
           comicId: comic.id,
           userName: newComment.userName,
           content: newComment.content,
-          rating: newComment.rating,
+          rating: 5,
           date: new Date().toISOString(),
           isApproved: false // Requires admin approval
       };
 
       await DataProvider.saveComment(comment);
       alert('Bình luận của bạn đã được gửi và đang chờ duyệt!');
-      setNewComment({ userName: '', content: '', rating: 5 });
+      setNewComment({ userName: '', content: '' });
       setSubmittingComment(false);
   };
 
-  // Pagination Logic for "You Might Like"
-  const itemsPerPage = 6; // 3 cols x 2 rows
+  const itemsPerPage = 6;
   const totalPages = Math.ceil(recommendations.length / itemsPerPage);
   
   const nextRecPage = () => setRecPage(prev => (prev + 1) % totalPages);
   const prevRecPage = () => setRecPage(prev => (prev - 1 + totalPages) % totalPages);
 
-  // Auto-play Slider Effect
   useEffect(() => {
       if (totalPages <= 1 || isHoveringRecs) return;
-
       const interval = setInterval(() => {
-          setRecPage(prev => (prev + 1) % totalPages); // Always loop forward
+          setRecPage(prev => (prev + 1) % totalPages);
       }, 4000); 
-
       return () => clearInterval(interval);
-  }, [totalPages, isHoveringRecs]); // Removed recPage dependency to avoid reset race conditions
+  }, [totalPages, isHoveringRecs]);
 
   const currentRecs = recommendations.slice(
       recPage * itemsPerPage, 
@@ -109,10 +113,31 @@ const ComicDetail: React.FC = () => {
   );
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-primary">Đang tải...</div>;
-  if (!comic) return <div className="min-h-screen flex items-center justify-center text-red-500">Không tìm thấy truyện</div>;
+  
+  if (!comic) return (
+      <div className="min-h-screen flex flex-col items-center justify-center text-slate-400">
+          <SEOHead title="Không tìm thấy truyện" />
+          <p className="text-xl mb-4">Không tìm thấy truyện hoặc truyện đã bị xóa.</p>
+          <Link to="/" className="text-primary hover:underline">Quay về trang chủ</Link>
+      </div>
+  );
+
+  // Safe checks for chapters
+  const hasChapters = comic.chapters && comic.chapters.length > 0;
+  const firstChapter = hasChapters ? comic.chapters[0] : null;
+  const lastChapter = hasChapters ? comic.chapters[comic.chapters.length - 1] : null;
 
   return (
     <div className="min-h-screen pb-12">
+        {/* SEO */}
+        <SEOHead 
+            title={comic.metaTitle || `${comic.title} - Đọc Truyện Tranh Online`}
+            description={comic.metaDescription || comic.description.substring(0, 160)}
+            keywords={comic.metaKeywords || `${comic.title}, ${comic.genres.join(', ')}`}
+            image={comic.coverImage}
+            url={window.location.href}
+        />
+
         {/* Background Blur */}
         <div className="h-64 md:h-80 w-full overflow-hidden relative">
             <img src={comic.coverImage} className="w-full h-full object-cover blur-xl opacity-30" alt="Background" />
@@ -123,7 +148,7 @@ const ComicDetail: React.FC = () => {
             {/* Header Section */}
             <div className="flex flex-col md:flex-row gap-8">
                 {/* Cover Image */}
-                <div className="flex-shrink-0 mx-auto md:mx-0 w-48 md:w-64 rounded-lg shadow-2xl overflow-hidden border-4 border-card">
+                <div className="flex-shrink-0 mx-auto md:mx-0 w-48 md:w-64 rounded-lg shadow-2xl overflow-hidden border-4 border-card bg-card">
                     <img src={comic.coverImage} className="w-full h-full object-cover" alt={comic.title} />
                 </div>
 
@@ -131,10 +156,14 @@ const ComicDetail: React.FC = () => {
                 <div className="flex-grow pt-4 md:pt-12 text-center md:text-left">
                     <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">{comic.title}</h1>
                     <div className="flex flex-wrap justify-center md:justify-start items-center gap-4 text-sm text-slate-300 mb-4">
-                        <span className="flex items-center gap-1"><User size={14}/> {comic.author}</span>
+                        <span className="flex items-center gap-1"><User size={14}/> {comic.author || 'Đang cập nhật'}</span>
                         <span className="flex items-center gap-1"><Tag size={14}/> {comic.status}</span>
-                        <span className="flex items-center gap-1 text-yellow-400"><Star size={14} fill="currentColor"/> {comic.rating}</span>
-                        <span className="flex items-center gap-1"><Eye size={14}/> {Math.floor(comic.views).toLocaleString()}</span>
+                        <span className="flex items-center gap-1"><Eye size={14}/> {Math.floor(comic.views || 0).toLocaleString()}</span>
+                        {comic.rating && (
+                            <span className="flex items-center gap-1 text-yellow-400">
+                                <Star size={14} fill="currentColor" /> {comic.rating}
+                            </span>
+                        )}
                     </div>
 
                     <div className="flex flex-wrap justify-center md:justify-start gap-2 mb-6">
@@ -146,13 +175,21 @@ const ComicDetail: React.FC = () => {
                     </div>
 
                     <div className="flex justify-center md:justify-start gap-4 mb-8">
-                        <Link to={`/read/${comic.chapters[0].id}`} className="bg-primary hover:bg-primary/90 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-primary/20">
-                            <BookOpen size={20} />
-                            Đọc Từ Đầu
-                        </Link>
-                         <Link to={`/read/${comic.chapters[comic.chapters.length - 1].id}`} className="bg-card hover:bg-card/80 text-white border border-white/10 px-6 py-3 rounded-xl font-medium flex items-center gap-2 transition-all">
-                            Đọc Mới Nhất
-                        </Link>
+                        {hasChapters && firstChapter ? (
+                            <>
+                                <Link to={`/doc/${lastChapter?.id}`} className="bg-primary hover:bg-primary/90 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-primary/20">
+                                    <BookOpen size={20} />
+                                    Đọc Từ Đầu
+                                </Link>
+                                <Link to={`/doc/${firstChapter.id}`} className="bg-card hover:bg-card/80 text-white border border-white/10 px-6 py-3 rounded-xl font-medium flex items-center gap-2 transition-all">
+                                    Đọc Mới Nhất
+                                </Link>
+                            </>
+                        ) : (
+                            <button disabled className="bg-white/10 text-slate-400 px-8 py-3 rounded-xl font-bold cursor-not-allowed">
+                                Chưa có chương nào
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -184,47 +221,44 @@ const ComicDetail: React.FC = () => {
                             </div>
                     )}
                     
-                    {/* Render HTML Description (Supported by CMS Editor) */}
-                    <div className="text-slate-300 leading-relaxed text-sm md:text-base prose prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: comic.description }} />
+                    <div className="text-slate-300 leading-relaxed text-sm md:text-base prose prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: comic.description || 'Đang cập nhật mô tả...' }} />
                 </div>
             </div>
 
             {/* Content Grid */}
             <div className="flex flex-col lg:flex-row gap-8 items-stretch">
-                
-                {/* Left Column: Chapters & Comments */}
                 <div className="lg:w-2/3 flex flex-col gap-8">
-                    {/* Chapter List */}
                     <div className="bg-card rounded-2xl p-6 border border-white/5 shadow-lg flex-shrink-0">
                          <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2 flex-shrink-0">
                             <List size={20} className="text-primary" />
                             Danh sách chương
                         </h3>
-                        <div className="grid gap-2">
-                            {comic.chapters.map(chap => (
-                                <Link 
-                                    key={chap.id} 
-                                    to={`/read/${chap.id}`}
-                                    className="flex items-center justify-between p-3 rounded-lg bg-dark hover:bg-white/5 border border-white/5 transition-colors group"
-                                >
-                                    <span className="font-medium text-slate-300 group-hover:text-primary transition-colors">{chap.title}</span>
-                                    <span className="text-xs text-slate-500">{new Date(chap.updatedAt).toLocaleDateString('vi-VN')}</span>
-                                </Link>
-                            ))}
+                        <div className="grid gap-2 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
+                            {hasChapters ? (
+                                comic.chapters.map(chap => (
+                                    <Link 
+                                        key={chap.id} 
+                                        to={`/doc/${chap.id}`}
+                                        className="flex items-center justify-between p-3 rounded-lg bg-dark hover:bg-white/5 border border-white/5 transition-colors group"
+                                    >
+                                        <span className="font-medium text-slate-300 group-hover:text-primary transition-colors">{chap.title}</span>
+                                        <span className="text-xs text-slate-500">{chap.updatedAt ? new Date(chap.updatedAt).toLocaleDateString('vi-VN') : ''}</span>
+                                    </Link>
+                                ))
+                            ) : (
+                                <div className="text-slate-500 italic p-4 text-center">Chưa có chương nào được đăng tải.</div>
+                            )}
                         </div>
-                        {comic.chapters.length === 0 && <div className="text-slate-500 italic">Chưa có chương nào.</div>}
                     </div>
 
-                    {/* Comments Section */}
                     <div className="bg-card rounded-2xl p-6 border border-white/5 shadow-lg h-full">
                         <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
                             <MessageSquare size={20} className="text-green-500" />
-                            Bình luận & Đánh giá
+                            Bình luận
                         </h3>
 
-                        {/* Comment Form */}
                         <form onSubmit={handlePostComment} className="mb-8 bg-white/5 p-4 rounded-xl border border-white/5">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div className="grid grid-cols-1 gap-4 mb-4">
                                 <input 
                                     type="text" 
                                     placeholder="Tên của bạn" 
@@ -233,19 +267,6 @@ const ComicDetail: React.FC = () => {
                                     onChange={e => setNewComment({...newComment, userName: e.target.value})}
                                     required
                                 />
-                                <div className="flex items-center gap-2 bg-dark border border-white/10 rounded-lg px-3">
-                                    <span className="text-sm text-slate-400">Đánh giá:</span>
-                                    {[1,2,3,4,5].map(star => (
-                                        <button 
-                                            key={star} 
-                                            type="button" 
-                                            onClick={() => setNewComment({...newComment, rating: star})}
-                                            className={`p-1 ${newComment.rating >= star ? 'text-yellow-400' : 'text-slate-600'}`}
-                                        >
-                                            <Star size={16} fill="currentColor" />
-                                        </button>
-                                    ))}
-                                </div>
                             </div>
                             <textarea 
                                 placeholder="Viết bình luận của bạn..." 
@@ -262,7 +283,6 @@ const ComicDetail: React.FC = () => {
                             </div>
                         </form>
 
-                        {/* Comment List */}
                         <div className="space-y-4">
                             {comments.length === 0 ? (
                                 <p className="text-slate-500 text-center italic">Chưa có bình luận nào. Hãy là người đầu tiên!</p>
@@ -274,11 +294,13 @@ const ComicDetail: React.FC = () => {
                                                 <span className="font-bold text-white text-sm mr-2">{comment.userName}</span>
                                                 <span className="text-xs text-slate-500">{new Date(comment.date).toLocaleDateString('vi-VN')}</span>
                                             </div>
-                                            <div className="flex text-yellow-500">
-                                                {Array.from({length: comment.rating}).map((_, i) => (
-                                                    <Star key={i} size={12} fill="currentColor" />
-                                                ))}
-                                            </div>
+                                            {comment.rating && (
+                                                <div className="flex">
+                                                    {Array.from({length: comment.rating || 0}).map((_, i) => (
+                                                        <Star key={i} size={12} className="text-yellow-400" fill="currentColor" />
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                         <p className="text-slate-300 text-sm">{comment.content}</p>
                                     </div>
@@ -288,15 +310,10 @@ const ComicDetail: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Right Column: Related & Ads - STICKY SIDEBAR */}
                 <div className="lg:w-1/3 w-full space-y-6">
-                     {/* Sticky wrapper */}
                     <div className="sticky top-24 space-y-6">
-                        
-                        {/* AD SIDEBAR */}
                         <AdDisplay position="detail_sidebar" />
 
-                        {/* YOU MIGHT LIKE - SLIDER */}
                         {recommendations.length > 0 && (
                             <div 
                                 className="bg-card rounded-2xl p-5 border border-white/5 shadow-lg"
@@ -317,13 +334,11 @@ const ComicDetail: React.FC = () => {
                                     )}
                                 </div>
                                 
-                                {/* Grid 3 columns (Small thumbnails) */}
                                 <div className="grid grid-cols-3 gap-3 min-h-[200px]">
                                     {currentRecs.map(rec => (
-                                        <Link to={`/comic/${rec.id}`} key={rec.id} className="group flex flex-col gap-1">
+                                        <Link to={`/truyen/${rec.slug || rec.id}`} key={rec.id} className="group flex flex-col gap-1">
                                             <div className="aspect-[2/3] rounded-lg overflow-hidden relative border border-white/5">
                                                 <img src={rec.coverImage} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
-                                                {/* Views Overlay */}
                                                 <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-1">
                                                      <div className="flex items-center justify-center gap-1 text-[10px] text-white">
                                                          <Eye size={8}/> {Math.floor(rec.views/1000)}K
@@ -337,7 +352,6 @@ const ComicDetail: React.FC = () => {
                                     ))}
                                 </div>
                                 
-                                {/* Dots Pagination */}
                                 {totalPages > 1 && (
                                     <div className="flex justify-center gap-1 mt-4">
                                         {Array.from({length: totalPages}).map((_, idx) => (
@@ -355,7 +369,6 @@ const ComicDetail: React.FC = () => {
                 </div>
             </div>
 
-            {/* Bottom Ad in Detail Page */}
             <div className="mt-12">
                 <AdDisplay position="detail_bottom" />
             </div>
