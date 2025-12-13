@@ -1,15 +1,15 @@
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getComicById, getComics } from '../services/mockData';
 import { DataProvider } from '../services/dataProvider';
 import { summarizeComic } from '../services/geminiService';
 import { Comic, Comment } from '../types';
-import { Eye, List, BookOpen, Bot, User, Tag, ChevronLeft, ChevronRight, MessageSquare, Send, Star, CheckCircle, Clock } from 'lucide-react';
+import { Eye, List, BookOpen, Bot, User, ChevronLeft, ChevronRight, MessageSquare, Send, Star, CheckCircle, Clock } from 'lucide-react';
 import AdDisplay from '../components/AdDisplay';
 import SEOHead from '../components/SEOHead';
 
-const ComicDetail: React.FC = () => {
+export default function ComicDetail() {
   const { id } = useParams<{ id: string }>();
   const [comic, setComic] = useState<Comic | undefined>(undefined);
   const [loading, setLoading] = useState(true);
@@ -159,7 +159,7 @@ const ComicDetail: React.FC = () => {
                         <span className="flex items-center gap-1 bg-white/5 px-3 py-1 rounded-full"><User size={14}/> {comic.author || 'Đang cập nhật'}</span>
                         <span className="flex items-center gap-1 bg-white/5 px-3 py-1 rounded-full"><Eye size={14}/> {Math.floor(comic.views || 0).toLocaleString()}</span>
                         
-                        {/* Styled Status Badge */}
+                        {/* Status Badge */}
                         <span className={`flex items-center gap-1 px-3 py-1 rounded-full font-bold ${comic.status === 'Hoàn thành' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'}`}>
                             {comic.status === 'Hoàn thành' ? <CheckCircle size={14}/> : <Clock size={14}/>} 
                             {comic.status}
@@ -381,6 +381,4 @@ const ComicDetail: React.FC = () => {
         </div>
     </div>
   );
-};
-
-export default ComicDetail;
+}

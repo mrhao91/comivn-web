@@ -20,7 +20,9 @@ const PORT = process.env.PORT || 3000;
 
 // Cấu hình CORS mở rộng để tránh lỗi kết nối từ frontend
 app.use(cors({ origin: '*', optionsSuccessStatus: 200 }));
-app.use(express.json());
+// IMPORTANT: Increase limit for big payloads and strict JSON parsing
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // 1. Tạo thư mục uploads (Bọc Try-Catch để tránh crash server nếu không có quyền)
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
@@ -66,7 +68,8 @@ const dbConfig = {
     port: process.env.DB_PORT || 3306,
     waitForConnections: true,
     connectionLimit: 10,
-    charset: 'utf8mb4'
+    charset: 'utf8mb4', // BẮT BUỘC: Hỗ trợ tiếng Việt Emoji và ký tự đặc biệt
+    timezone: '+07:00' // Giờ Việt Nam
 };
 
 if (process.env.DB_HOST && process.env.DB_HOST !== 'localhost' && process.env.DB_HOST !== '127.0.0.1') {
@@ -83,7 +86,12 @@ const connectToDatabase = () => {
         db = mysql.createPool(dbConfig);
         db.getConnection((err, conn) => {
             if(err) console.error('❌ [DB] Lỗi kết nối:', err.message);
-            else { console.log('✅ [DB] Đã kết nối thành công'); conn.release(); }
+            else { 
+                console.log('✅ [DB] Đã kết nối thành công'); 
+                // Ensure charset per session
+                conn.query("SET NAMES utf8mb4");
+                conn.release(); 
+            }
         });
     } catch (e) {
         console.error("❌ [DB] Exception:", e.message);
@@ -142,7 +150,32 @@ apiRouter.post('/upload', authMiddleware, (req, res, next) => {
 });
 
 // CRUD API
-apiRouter.get('/comics', (req, res) => safeQuery('SELECT * FROM comics ORDER BY updated_at DESC', [], res, r => res.json(r.map(c => ({...c, genres: c.genres ? c.genres.split(',') : [], isRecommended: c.isRecommended===1, chapters: []})))));
+apiRouter.get('/comics', (req, res) => {
+    const sql = `
+        SELECT c.*, 
+        (SELECT id FROM chapters WHERE comicId = c.id ORDER BY number DESC LIMIT 1) as latest_chap_id,
+        (SELECT number FROM chapters WHERE comicId = c.id ORDER BY number DESC LIMIT 1) as latest_chap_number,
+        (SELECT updatedAt FROM chapters WHERE comicId = c.id ORDER BY number DESC LIMIT 1) as latest_chap_date
+        FROM comics c 
+        ORDER BY updated_at DESC
+    `;
+    safeQuery(sql, [], res, (results) => {
+        const comics = results.map(c => ({
+            ...c,
+            genres: c.genres ? c.genres.split(',') : [],
+            isRecommended: c.isRecommended === 1,
+            // Map flat fields back to chapters array structure expected by frontend
+            chapters: c.latest_chap_id ? [{
+                id: c.latest_chap_id,
+                number: c.latest_chap_number,
+                updatedAt: c.latest_chap_date,
+                title: `Chapter ${c.latest_chap_number}`
+            }] : [] 
+        }));
+        res.json(comics);
+    });
+});
+
 apiRouter.get('/comics/:id', (req, res) => {
     const p = req.params.id;
     safeQuery('SELECT * FROM comics WHERE id=? OR slug=?', [p, p], res, (comics) => {
@@ -200,6 +233,9 @@ apiRouter.get('/static-pages/:slug', (req,res)=>safeQuery('SELECT * FROM static_
 apiRouter.post('/static-pages', authMiddleware, (req,res)=>{const{slug,title,content,metaTitle,metaDescription,metaKeywords}=req.body; safeQuery('INSERT INTO static_pages (slug,title,content,metaTitle,metaDescription,metaKeywords) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE title=?,content=?,metaTitle=?,metaDescription=?,metaKeywords=?',[slug,title,content,metaTitle,metaDescription,metaKeywords,title,content,metaTitle,metaDescription,metaKeywords],res,()=>res.json({message:'Saved'}));});
 
 apiRouter.get('/users', authMiddleware, (req, res) => safeQuery('SELECT id, username, role, created_at FROM users', [], res, r => res.json(r)));
+apiRouter.post('/users', authMiddleware, (req, res) => { const {id,username,password,role}=req.body; if(!id) { safeQuery('INSERT INTO users (username,password,role) VALUES (?,?,?)',[username,password,role],res,()=>res.json({message:'Saved'})); } else { if(password) safeQuery('UPDATE users SET username=?,password=?,role=? WHERE id=?',[username,password,role,id],res,()=>res.json({message:'Saved'})); else safeQuery('UPDATE users SET username=?,role=? WHERE id=?',[username,role,id],res,()=>res.json({message:'Saved'})); }});
+apiRouter.delete('/users/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM users WHERE id=?',[req.params.id],res,()=>res.json({message:'Deleted'})));
+
 apiRouter.get('/comments', (req, res) => res.json([]));
 
 app.use('/v1', apiRouter);

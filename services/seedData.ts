@@ -8,6 +8,10 @@ export const DEFAULT_THEME: ThemeConfig = {
     cardColor: '#292524',
     fontFamily: 'sans',
     homeLayout: { showSlider: true, showHot: true, showNew: true },
+    headerMenu: [
+        { label: 'Trang chủ', url: '/' },
+        { label: 'Thể loại', url: '/categories' }
+    ],
     siteName: 'ComiVN',
     homeMetaTitle: 'ComiVN - Đọc Truyện Tranh Online Hay Nhất',
     homeMetaDescription: 'Website đọc truyện tranh online miễn phí chất lượng cao.',
@@ -71,6 +75,7 @@ export const SEED_COMMENTS: Comment[] = [
 ];
 
 export const SEED_STATIC_PAGES: StaticPage[] = [
-    { slug: 'dieu-khoan', title: 'Điều Khoản', content: '<p>Nội dung điều khoản...</p>' },
-    { slug: 'lien-he', title: 'Liên Hệ', content: '<p>Nội dung liên hệ...</p>' }
+    { slug: 'dieu-khoan', title: 'Điều Khoản Sử Dụng', content: '<h2>1. Giới thiệu</h2><p>Chào mừng bạn đến với ComiVN...</p>' },
+    { slug: 'chinh-sach-rieng-tu', title: 'Chính Sách Riêng Tư', content: '<h2>1. Thu thập thông tin</h2><p>Chúng tôi cam kết bảo mật thông tin...</p>' },
+    { slug: 'lien-he', title: 'Liên Hệ', content: '<h2>Thông tin liên hệ</h2><p>Email: contact@comivn.com</p>' }
 ];

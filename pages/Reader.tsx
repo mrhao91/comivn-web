@@ -21,7 +21,7 @@ const Reader: React.FC = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-        // Handle "undefined" string literal bug
+        // Handle "undefined" string literal bug explicitly
         if (!chapterId || chapterId === 'undefined') {
             setError("Không tìm thấy chương truyện này.");
             setLoading(false);
@@ -35,10 +35,6 @@ const Reader: React.FC = () => {
             // Assuming ID format like "comic-1-chapter-5" or extracting ID logic
             // We'll try to guess comic ID if naming convention is followed, or just fetch directly if logic is different.
             // In a real app, backend usually provides "comicId" when fetching chapter info.
-            
-            // Heuristic to find Comic ID: usually before "-chapter-" or just rely on getChapterPages to handle it?
-            // Since our mockData structure is simple, let's look up comicId from the chapter if possible?
-            // Wait, we need the Comic Object to show Title and navigation.
             
             // Quick Fix: Extract potential Comic ID
             const comicIdPart = chapterId.includes('-chapter') ? chapterId.split('-chapter')[0] : chapterId.split('-')[0];

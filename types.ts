@@ -80,6 +80,7 @@ export interface ThemeConfig {
         showHot: boolean;
         showNew: boolean;
     };
+    headerMenu?: { label: string; url: string }[];
     footerContent?: string;
     siteName?: string;
     homeMetaTitle?: string;

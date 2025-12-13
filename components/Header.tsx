@@ -1,16 +1,35 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Search, Menu, X, BookOpen, LayoutDashboard, LogOut, User } from 'lucide-react';
 import { AuthService } from '../services/auth';
+import { DataProvider } from '../services/dataProvider';
 
 const Header: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [menuItems, setMenuItems] = useState<{label: string, url: string}[]>([]);
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Check auth status on every render (simple approach for this demo)
   const isAuthenticated = AuthService.isAuthenticated();
+
+  useEffect(() => {
+      // Fetch dynamic menu from theme
+      const loadTheme = async () => {
+          const theme = await DataProvider.getTheme();
+          if (theme.headerMenu && theme.headerMenu.length > 0) {
+              setMenuItems(theme.headerMenu);
+          } else {
+              // Fallback default
+              setMenuItems([
+                  { label: 'Trang chủ', url: '/' },
+                  { label: 'Thể loại', url: '/categories' }
+              ]);
+          }
+      };
+      loadTheme();
+  }, []);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,13 +58,13 @@ const Header: React.FC = () => {
 
         {/* Desktop Nav */}
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300">
-          <Link to="/" className="hover:text-primary transition-colors">Trang chủ</Link>
-          <Link to="/categories" className="hover:text-primary transition-colors">Thể loại</Link>
+          {menuItems.map((item, index) => (
+              <Link key={index} to={item.url} className="hover:text-primary transition-colors">
+                  {item.label}
+              </Link>
+          ))}
           
-          {/* Secret Entry Point: Only show Login Icon if NOT authenticated.
-              If authenticated, we hide it completely to respect the "Hidden Admin" request. 
-              The user can only access admin via /admin URL. 
-          */}
+          {/* Secret Entry Point: Only show Login Icon if NOT authenticated */}
           {!isAuthenticated && (
             <Link to="/login" className="hover:text-primary transition-colors opacity-50 hover:opacity-100" title="Đăng nhập Admin">
                 <User size={16} />
@@ -88,8 +107,11 @@ const Header: React.FC = () => {
                 <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
             </form>
             <nav className="flex flex-col gap-4 text-slate-300">
-                <Link to="/" onClick={() => setIsMenuOpen(false)}>Trang chủ</Link>
-                <Link to="/categories" onClick={() => setIsMenuOpen(false)}>Thể loại</Link>
+                {menuItems.map((item, index) => (
+                    <Link key={index} to={item.url} onClick={() => setIsMenuOpen(false)}>
+                        {item.label}
+                    </Link>
+                ))}
                 {!isAuthenticated && (
                     <Link to="/login" className="text-slate-500" onClick={() => setIsMenuOpen(false)}>Đăng nhập Admin</Link>
                 )}
