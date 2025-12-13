@@ -101,6 +101,13 @@ const createTables = async () => {
             role VARCHAR(20) DEFAULT 'editor',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ${tableOptions}`,
+        `CREATE TABLE IF NOT EXISTS reports (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            comicId VARCHAR(255),
+            chapterId VARCHAR(255),
+            message TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ${tableOptions}`,
         // Seed default Admin User if not exists
         `INSERT IGNORE INTO users (id, username, password, role) VALUES (1, 'admin', '123456', 'admin')`,
         // Seed default Theme Config

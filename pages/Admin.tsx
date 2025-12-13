@@ -1,8 +1,8 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { DataProvider } from '../services/dataProvider';
-import { Comic, Genre, Chapter, Page, AdConfig, Comment, StaticPage, ThemeConfig, User } from '../types';
-import { Plus, Trash2, Edit, Save, X, LayoutDashboard, Image as ImageIcon, Tags, Book, List, Upload, LogOut, Home, MonitorPlay, MessageSquare, FileText, CheckCircle, XCircle, Settings, Palette, Globe, Users, ShieldAlert, Eye, Loader, CheckSquare, Info, FilePlus, Link as LinkIcon, Menu as MenuIcon } from 'lucide-react';
+import { Comic, Genre, Chapter, Page, AdConfig, Comment, StaticPage, ThemeConfig, User, Report } from '../types';
+import { Plus, Trash2, Edit, Save, X, LayoutDashboard, Image as ImageIcon, Tags, Book, List, Upload, LogOut, Home, MonitorPlay, MessageSquare, FileText, CheckCircle, XCircle, Settings, Palette, Globe, Users, ShieldAlert, Eye, Loader, CheckSquare, Info, FilePlus, Link as LinkIcon, Menu as MenuIcon, Flag, Check } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AuthService } from '../services/auth';
 import SimpleEditor from '../components/SimpleEditor';
@@ -25,6 +25,7 @@ const Admin: React.FC = () => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [staticPages, setStaticPages] = useState<StaticPage[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [reports, setReports] = useState<Report[]>([]);
   const navigate = useNavigate();
   
   // Role & Auth
@@ -87,6 +88,10 @@ const Admin: React.FC = () => {
         const g = await DataProvider.getGenres();
         setGenres(Array.isArray(g) ? g : []); 
     } catch (e) { setGenres([]); }
+    
+    if (activeView === 'reports') {
+        try { const r = await DataProvider.getReports(AuthService.getToken()); setReports(Array.isArray(r) ? r : []); } catch(e) { setReports([]); }
+    }
 
     if (activeView === 'comments') {
         try { const c = await DataProvider.getComments(); setComments(Array.isArray(c) ? c : []); } catch(e){ setComments([]); }
@@ -230,6 +235,7 @@ const Admin: React.FC = () => {
                 <div className="flex mb-6 overflow-x-auto pb-2 gap-2 custom-scrollbar">
                     <button onClick={() => setActiveView('list')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 flex-shrink-0 ${activeView === 'list' ? 'bg-primary text-white' : 'bg-card text-slate-400'}`}><Book size={16}/> Truyện</button>
                     <button onClick={() => setActiveView('genres')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 flex-shrink-0 ${activeView === 'genres' ? 'bg-primary text-white' : 'bg-card text-slate-400'}`}><Tags size={16}/> Thể loại</button>
+                    <button onClick={() => setActiveView('reports')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 flex-shrink-0 ${activeView === 'reports' ? 'bg-primary text-white' : 'bg-card text-slate-400'}`}><Flag size={16}/> Báo Lỗi</button>
                     {/* Only show other tabs if admin */}
                     {currentUserRole === 'admin' && (<>
                         <button onClick={() => setActiveView('ads')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 flex-shrink-0 ${activeView === 'ads' ? 'bg-primary text-white' : 'bg-card text-slate-400'}`}><MonitorPlay size={16}/> Quảng Cáo</button>
@@ -300,6 +306,43 @@ const Admin: React.FC = () => {
                     </div>
                 )}
                 
+                {/* REPORT LIST */}
+                {activeView === 'reports' && (
+                    <div className="bg-card rounded-xl border border-white/10 overflow-hidden shadow-xl">
+                         <div className="p-4 border-b border-white/10">
+                             <h2 className="text-xl font-bold text-white">Danh Sách Báo Lỗi</h2>
+                             <p className="text-xs text-slate-500">Người dùng báo cáo lỗi khi đọc truyện</p>
+                         </div>
+                        <table className="w-full text-left">
+                            <thead className="bg-white/5 text-slate-400 text-sm uppercase font-bold"><tr><th className="p-4">Truyện</th><th className="p-4">Chương</th><th className="p-4">Nội dung lỗi</th><th className="p-4">Thời gian</th><th className="p-4 text-right">Xử lý</th></tr></thead>
+                            <tbody className="divide-y divide-white/5">
+                                {Array.isArray(reports) && reports.map(r => (
+                                    <tr key={r.id} className="text-slate-300 hover:bg-white/5">
+                                        <td className="p-4 font-bold text-white">{r.comicTitle || r.comicId}</td>
+                                        <td className="p-4 text-primary">{r.chapterTitle || r.chapterId}</td>
+                                        <td className="p-4 text-red-400">{r.message}</td>
+                                        <td className="p-4 text-xs text-slate-500">{new Date(r.created_at).toLocaleString('vi-VN')}</td>
+                                        <td className="p-4 text-right">
+                                            <button 
+                                                onClick={async () => { 
+                                                    if(window.confirm('Đánh dấu đã xử lý và xóa báo cáo?')) { 
+                                                        await DataProvider.deleteReport(r.id, AuthService.getToken()); 
+                                                        refreshData(currentUserRole); 
+                                                    } 
+                                                }} 
+                                                className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs flex items-center gap-1 ml-auto"
+                                            >
+                                                <Check size={14} /> Đã xong
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {reports.length === 0 && (<tr><td colSpan={5} className="p-8 text-center text-slate-500 italic">Không có báo lỗi nào.</td></tr>)}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+
                 {/* 3. ADS VIEW (Updated with Upload) */}
                 {activeView === 'ads' && (
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

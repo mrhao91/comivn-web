@@ -3,9 +3,8 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getComicById, getComics } from '../services/mockData';
 import { DataProvider } from '../services/dataProvider';
-import { summarizeComic } from '../services/geminiService';
 import { Comic, Comment } from '../types';
-import { Eye, List, BookOpen, Bot, User, ChevronLeft, ChevronRight, MessageSquare, Send, Star, CheckCircle, Clock } from 'lucide-react';
+import { Eye, List, BookOpen, User, ChevronLeft, ChevronRight, MessageSquare, Send, Star, CheckCircle, Clock } from 'lucide-react';
 import AdDisplay from '../components/AdDisplay';
 import SEOHead from '../components/SEOHead';
 
@@ -13,8 +12,6 @@ export default function ComicDetail() {
   const { id } = useParams<{ id: string }>();
   const [comic, setComic] = useState<Comic | undefined>(undefined);
   const [loading, setLoading] = useState(true);
-  const [aiSummary, setAiSummary] = useState<string | null>(null);
-  const [loadingAi, setLoadingAi] = useState(false);
   
   // Recommendations State
   const [recommendations, setRecommendations] = useState<Comic[]>([]);
@@ -63,14 +60,6 @@ export default function ComicDetail() {
     };
     fetchComic();
   }, [id]);
-
-  const handleAiSummarize = async () => {
-      if (!comic) return;
-      setLoadingAi(true);
-      const summary = await summarizeComic(comic.title, comic.description);
-      setAiSummary(summary);
-      setLoadingAi(false);
-  };
 
   const handlePostComment = async (e: React.FormEvent) => {
       e.preventDefault();
@@ -127,6 +116,10 @@ export default function ComicDetail() {
   const firstChapter = hasChapters ? comic.chapters[0] : null;
   const lastChapter = hasChapters ? comic.chapters[comic.chapters.length - 1] : null;
 
+  // FIX: Force display text to be correct regardless of DB encoding issues
+  const statusDisplay = (comic.status && comic.status.includes('Hoàn')) ? 'Hoàn thành' : 'Đang tiến hành';
+  const isCompleted = statusDisplay === 'Hoàn thành';
+
   return (
     <div className="min-h-screen pb-12">
         {/* SEO */}
@@ -159,10 +152,10 @@ export default function ComicDetail() {
                         <span className="flex items-center gap-1 bg-white/5 px-3 py-1 rounded-full"><User size={14}/> {comic.author || 'Đang cập nhật'}</span>
                         <span className="flex items-center gap-1 bg-white/5 px-3 py-1 rounded-full"><Eye size={14}/> {Math.floor(comic.views || 0).toLocaleString()}</span>
                         
-                        {/* Status Badge */}
-                        <span className={`flex items-center gap-1 px-3 py-1 rounded-full font-bold ${comic.status === 'Hoàn thành' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'}`}>
-                            {comic.status === 'Hoàn thành' ? <CheckCircle size={14}/> : <Clock size={14}/>} 
-                            {comic.status}
+                        {/* Status Badge - Fixed Encoding Display */}
+                        <span className={`flex items-center gap-1 px-3 py-1 rounded-full font-bold ${isCompleted ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'}`}>
+                            {isCompleted ? <CheckCircle size={14}/> : <Clock size={14}/>} 
+                            {statusDisplay}
                         </span>
 
                         {comic.rating && (
@@ -208,24 +201,7 @@ export default function ComicDetail() {
                             <BookOpen size={20} className="text-secondary" />
                             Nội dung
                         </h3>
-                        <button 
-                            onClick={handleAiSummarize}
-                            disabled={loadingAi}
-                            className="text-xs flex items-center gap-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white px-3 py-1.5 rounded-full hover:opacity-90 disabled:opacity-50 transition-all"
-                        >
-                            <Bot size={14} />
-                            {loadingAi ? 'Đang tóm tắt...' : 'AI Tóm tắt'}
-                        </button>
                     </div>
-                    
-                    {aiSummary && (
-                            <div className="mb-4 p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl text-purple-200 text-sm animate-in fade-in zoom-in-95">
-                            <div className="flex items-center gap-2 mb-2 font-bold text-purple-400">
-                                <Bot size={16} /> Gemini đánh giá:
-                            </div>
-                            {aiSummary}
-                            </div>
-                    )}
                     
                     <div className="text-slate-300 leading-relaxed text-sm md:text-base prose prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: comic.description || 'Đang cập nhật mô tả...' }} />
                 </div>
@@ -374,10 +350,7 @@ export default function ComicDetail() {
                     </div>
                 </div>
             </div>
-
-            <div className="mt-12">
-                <AdDisplay position="detail_bottom" />
-            </div>
+            {/* Removed the bottom ad display to avoid duplication/clutter as requested */}
         </div>
     </div>
   );

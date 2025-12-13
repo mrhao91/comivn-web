@@ -94,3 +94,13 @@ export interface User {
     password?: string;
     role: 'admin' | 'editor';
 }
+
+export interface Report {
+    id: string;
+    comicId: string;
+    chapterId: string;
+    message: string;
+    created_at: string;
+    comicTitle?: string; // Optional for UI display
+    chapterTitle?: string; // Optional for UI display
+}

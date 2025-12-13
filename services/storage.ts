@@ -1,5 +1,5 @@
 
-import { Comic, Chapter, Genre, Page, AdConfig, Comment, StaticPage, ThemeConfig, User } from '../types';
+import { Comic, Chapter, Genre, Page, AdConfig, Comment, StaticPage, ThemeConfig, User, Report } from '../types';
 import { 
     SEED_COMICS, 
     SEED_GENRES, 
@@ -18,6 +18,7 @@ const COMMENTS_KEY = 'comivn_comments';
 const STATIC_PAGES_KEY = 'comivn_static_pages';
 const THEME_KEY = 'comivn_theme';
 const USERS_KEY = 'comivn_users';
+const REPORTS_KEY = 'comivn_reports';
 
 // Define the interface to help TypeScript inference
 export interface IStorageService {
@@ -46,6 +47,9 @@ export interface IStorageService {
     getUsers: () => User[];
     saveUser: (user: User) => void;
     deleteUser: (id: string | number) => void;
+    getReports: () => Report[];
+    saveReport: (report: Report) => void;
+    deleteReport: (id: string) => void;
 }
 
 export const StorageService: IStorageService = {
@@ -277,5 +281,22 @@ export const StorageService: IStorageService = {
       const users = StorageService.getUsers();
       const newUsers = users.filter(u => u.id !== id);
       localStorage.setItem(USERS_KEY, JSON.stringify(newUsers));
+  },
+
+  getReports: (): Report[] => {
+      const data = localStorage.getItem(REPORTS_KEY);
+      return data ? JSON.parse(data) : [];
+  },
+
+  saveReport: (report: Report) => {
+      const reports = StorageService.getReports();
+      reports.unshift(report);
+      localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
+  },
+
+  deleteReport: (id: string) => {
+      const reports = StorageService.getReports();
+      const newReports = reports.filter(r => r.id !== id);
+      localStorage.setItem(REPORTS_KEY, JSON.stringify(newReports));
   }
 };

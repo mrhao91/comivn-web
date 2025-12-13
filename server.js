@@ -236,6 +236,25 @@ apiRouter.get('/users', authMiddleware, (req, res) => safeQuery('SELECT id, user
 apiRouter.post('/users', authMiddleware, (req, res) => { const {id,username,password,role}=req.body; if(!id) { safeQuery('INSERT INTO users (username,password,role) VALUES (?,?,?)',[username,password,role],res,()=>res.json({message:'Saved'})); } else { if(password) safeQuery('UPDATE users SET username=?,password=?,role=? WHERE id=?',[username,password,role,id],res,()=>res.json({message:'Saved'})); else safeQuery('UPDATE users SET username=?,role=? WHERE id=?',[username,role,id],res,()=>res.json({message:'Saved'})); }});
 apiRouter.delete('/users/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM users WHERE id=?',[req.params.id],res,()=>res.json({message:'Deleted'})));
 
+// Reports
+apiRouter.get('/reports', authMiddleware, (req, res) => {
+    // Join to get context (comic title, chapter title)
+    const sql = `
+        SELECT r.*, c.title as comicTitle, ch.title as chapterTitle
+        FROM reports r
+        LEFT JOIN comics c ON r.comicId = c.id
+        LEFT JOIN chapters ch ON r.chapterId = ch.id
+        ORDER BY r.created_at DESC
+    `;
+    safeQuery(sql, [], res, r => res.json(r));
+});
+apiRouter.post('/reports', (req, res) => {
+    const { comicId, chapterId, message } = req.body;
+    safeQuery('INSERT INTO reports (comicId, chapterId, message) VALUES (?,?,?)', [comicId, chapterId, message], res, () => res.json({message: 'Report sent'}));
+});
+apiRouter.delete('/reports/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM reports WHERE id=?', [req.params.id], res, () => res.json({message: 'Deleted'})));
+
+
 apiRouter.get('/comments', (req, res) => res.json([]));
 
 app.use('/v1', apiRouter);

@@ -1,5 +1,5 @@
 
-import { Comic, Page, Genre, Chapter, AdConfig, Comment, StaticPage, ThemeConfig, User } from '../types';
+import { Comic, Page, Genre, Chapter, AdConfig, Comment, StaticPage, ThemeConfig, User, Report } from '../types';
 import { StorageService } from './storage';
 import { USE_MOCK_DATA, API_BASE_URL } from './config';
 
@@ -231,7 +231,28 @@ const ApiService = {
             body: JSON.stringify(theme)
         });
         return !!res;
-    }
+    },
+
+    // REPORTS
+    sendReport: async (comicId: string, chapterId: string, message: string): Promise<boolean> => {
+        const res = await fetchApi('/reports', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ comicId, chapterId, message })
+        });
+        return !!res;
+    },
+    getReports: async (token?: string): Promise<Report[]> => {
+        const res = await fetchApi('/reports', { headers: { 'Authorization': `Bearer ${token}` } });
+        return Array.isArray(res) ? res : [];
+    },
+    deleteReport: async (id: string, token?: string): Promise<boolean> => {
+        const res = await fetchApi(`/reports/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return !!res;
+    },
 };
 
 const MockProvider = {
@@ -276,7 +297,22 @@ const MockProvider = {
         resolve(users.map((u: User) => ({...u, password: ''}))); 
     }, 200)),
     saveUser: async (user: User, token?: string) => { StorageService.saveUser(user); return true; },
-    deleteUser: async (id: string | number, token?: string) => { StorageService.deleteUser(id); return true; }
+    deleteUser: async (id: string | number, token?: string) => { StorageService.deleteUser(id); return true; },
+    
+    // Updated Mock Report Functions to actually use StorageService
+    sendReport: async (comicId: string, chapterId: string, message: string) => {
+        const report: Report = {
+            id: `rpt-${Date.now()}`,
+            comicId,
+            chapterId,
+            message,
+            created_at: new Date().toISOString()
+        };
+        StorageService.saveReport(report);
+        return true; 
+    },
+    getReports: async (token?: string) => new Promise<Report[]>(resolve => setTimeout(() => resolve(StorageService.getReports()), 200)),
+    deleteReport: async (id: string, token?: string) => { StorageService.deleteReport(id); return true; }
 };
 
 export const DataProvider = USE_MOCK_DATA ? MockProvider : ApiService;
