@@ -1,28 +1,25 @@
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getChapterPages, getComicById } from '../services/mockData';
 import { DataProvider } from '../services/dataProvider';
 import { Page, Comic, Chapter } from '../types';
-import { ChevronLeft, ChevronRight, Home, Flag } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Flag, AlertCircle } from 'lucide-react';
 import AdDisplay from '../components/AdDisplay';
 import SEOHead from '../components/SEOHead';
+import Header from '../components/Header'; // Import Global Header
 
 const Reader: React.FC = () => {
-  const { chapterId } = useParams<{ chapterId: string }>();
+  const { chapterId } = useParams<{ chapterId: string }>(); // chapterId here can be "slug-chap-1" or "comicId-chapterId"
   const navigate = useNavigate();
   const [pages, setPages] = useState<Page[]>([]);
   const [loading, setLoading] = useState(true);
   const [comic, setComic] = useState<Comic | undefined>(undefined);
   const [currentChapter, setCurrentChapter] = useState<Chapter | undefined>(undefined);
-  const [showHeader, setShowHeader] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
-  const lastScrollY = useRef(0);
 
   useEffect(() => {
     const fetchData = async () => {
-        // Handle "undefined" string literal bug explicitly
         if (!chapterId || chapterId === 'undefined') {
             setError("Không tìm thấy chương truyện này.");
             setLoading(false);
@@ -33,47 +30,70 @@ const Reader: React.FC = () => {
         setError(null);
 
         try {
-            // Quick Fix: Extract potential Comic ID
-            // Format thường là comicId-chapterId hoặc comicId đơn giản
-            const comicIdPart = chapterId.includes('-chapter') ? chapterId.split('-chapter')[0] : chapterId.split('-')[0];
-            
-            // Lấy thông tin truyện trước để có context (tiêu đề, danh sách chap)
-            const comicData = await getComicById(comicIdPart);
+            let comicSlugOrId = '';
+            let chapterNumber = -1;
+            let targetChapterId = '';
+
+            // 1. Kiểm tra xem URL có phải dạng SEO friendly không: "ten-truyen-chap-1"
+            // Regex bắt: (Mọi thứ trước -chap-)-(số chapter)
+            const slugMatch = chapterId.match(/(.*)-chap-(\d+(\.\d+)?)$/);
+
+            if (slugMatch) {
+                // Dạng SEO: slug-chap-number
+                comicSlugOrId = slugMatch[1];
+                chapterNumber = parseFloat(slugMatch[2]);
+            } else {
+                // Dạng Cũ (Legacy): comicId-chapterId hoặc chỉ chapterId
+                // Cố gắng tách comicId từ chuỗi cũ nếu có thể, hoặc dùng ID trực tiếp
+                comicSlugOrId = chapterId.includes('-chapter') ? chapterId.split('-chapter')[0] : chapterId.split('-')[0];
+                targetChapterId = chapterId;
+            }
+
+            // 2. Lấy thông tin truyện dựa trên Slug hoặc ID
+            const comicData = await getComicById(comicSlugOrId);
             
             if (comicData) {
                 setComic(comicData);
-                const foundChapter = comicData.chapters.find(c => c.id === chapterId);
+                
+                // 3. Tìm Chapter Object
+                let foundChapter: Chapter | undefined;
+
+                if (chapterNumber !== -1) {
+                    // Tìm theo số chapter (cho URL SEO)
+                    foundChapter = comicData.chapters.find(c => c.number === chapterNumber);
+                } else {
+                    // Tìm theo ID (cho URL Cũ)
+                    foundChapter = comicData.chapters.find(c => c.id === targetChapterId);
+                }
                 
                 if (foundChapter) {
                     setCurrentChapter(foundChapter);
-                    // Lấy danh sách ảnh của chapter
-                    const pageData = await getChapterPages(chapterId);
+                    // 4. Lấy danh sách ảnh của chapter đó
+                    const pageData = await getChapterPages(foundChapter.id);
                     setPages(pageData);
                 } else {
-                    // Nếu không tìm thấy chap trong list của truyện (có thể do ID URL khác format),
-                    // vẫn thử load pages để người dùng đọc được nội dung
-                    const pageData = await getChapterPages(chapterId);
-                    if (pageData && pageData.length > 0) {
-                        setPages(pageData);
-                        setCurrentChapter({ 
-                            id: chapterId, 
-                            comicId: comicData.id, 
-                            number: 0, 
-                            title: 'Chương hiện tại', 
-                            updatedAt: new Date().toISOString() 
-                        });
+                    // Fallback: Nếu không tìm thấy chapter trong list comic (có thể data chưa sync), thử gọi API pages trực tiếp với ID gốc
+                    // (Chỉ áp dụng cho trường hợp ID cũ, trường hợp SEO slug thì chịu nếu không khớp số)
+                    if (chapterNumber === -1) {
+                         const pageData = await getChapterPages(targetChapterId);
+                         if (pageData && pageData.length > 0) {
+                             setPages(pageData);
+                             setCurrentChapter({ 
+                                 id: targetChapterId, 
+                                 comicId: comicData.id, 
+                                 number: 0, 
+                                 title: 'Chương hiện tại', 
+                                 updatedAt: new Date().toISOString() 
+                             });
+                         } else {
+                             setError("Chương này không tồn tại.");
+                         }
                     } else {
-                        setError("Chương này không tồn tại hoặc chưa có nội dung.");
+                        setError(`Không tìm thấy Chapter ${chapterNumber} của truyện này.`);
                     }
                 }
             } else {
-                 // Fallback: nếu không lấy được info truyện, chỉ load ảnh
-                 const pageData = await getChapterPages(chapterId);
-                 if (pageData && pageData.length > 0) {
-                     setPages(pageData);
-                 } else {
-                     setError("Không thể tải nội dung chương.");
-                 }
+                 setError("Không tìm thấy thông tin truyện.");
             }
         } catch (err) {
             console.error(err);
@@ -87,178 +107,197 @@ const Reader: React.FC = () => {
     fetchData();
   }, [chapterId]);
 
-  // Xử lý ẩn/hiện Header khi cuộn
-  useEffect(() => {
-      const handleScroll = () => {
-          const currentScrollY = window.scrollY;
-          if (currentScrollY > lastScrollY.current && currentScrollY > 100) {
-              setShowHeader(false); // Cuộn xuống -> Ẩn
-          } else {
-              setShowHeader(true);  // Cuộn lên -> Hiện
-          }
-          lastScrollY.current = currentScrollY;
-      };
+  // Helper chuyển đổi sang URL SEO
+  const getChapterUrl = (c: Chapter, comicData?: Comic) => {
+      const targetComic = comicData || comic;
+      if (!targetComic) return `/doc/${c.id}`;
+      // Ưu tiên dùng slug, nếu không có thì dùng ID
+      const slug = targetComic.slug || targetComic.id;
+      return `/doc/${slug}-chap-${c.number}`;
+  };
 
-      window.addEventListener('scroll', handleScroll);
-      return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+  const handleChapterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const selectedChapId = e.target.value;
+      const selectedChap = comic?.chapters.find(c => c.id === selectedChapId);
+      if (selectedChap) {
+          navigate(getChapterUrl(selectedChap));
+      }
+  };
 
   const navigateChapter = (direction: 'next' | 'prev') => {
       if (!comic || !currentChapter) return;
       const currentIndex = comic.chapters.findIndex(c => c.id === currentChapter.id);
       if (currentIndex === -1) return;
 
-      let newIndex = direction === 'next' ? currentIndex - 1 : currentIndex + 1; // Vì chapters thường sort DESC (mới nhất đầu)
+      // Danh sách chapter thường sort giảm dần (Mới nhất -> Cũ nhất)
+      // Next (Chap sau) = Số lớn hơn = Index NHỎ hơn (nếu sort DESC)
+      // Tuy nhiên logic nút "Sau" thường người dùng hiểu là Chap tiếp theo (Chap 1 -> Chap 2)
+      // ComiVN data seed: chapters sort DESC (Chap 10, 9, ... 1).
+      // Chap hiện tại: 9 (index 1). "Chap Sau" là 10 (index 0). "Chap Trước" là 8 (index 2).
       
-      // Kiểm tra bounds
+      let newIndex = direction === 'next' ? currentIndex - 1 : currentIndex + 1; 
+      
       if (newIndex >= 0 && newIndex < comic.chapters.length) {
-          navigate(`/doc/${comic.chapters[newIndex].id}`);
+          navigate(getChapterUrl(comic.chapters[newIndex]));
       }
   };
 
   const handleReportError = async () => {
-      if (!comic || !currentChapter) {
-          alert("Dữ liệu chương chưa tải xong, vui lòng thử lại sau vài giây.");
-          return;
-      }
-      
-      const reason = window.prompt("Mô tả lỗi bạn gặp phải (ví dụ: ảnh die, sai chương, load chậm...):");
+      if (!comic || !currentChapter) return;
+      const reason = window.prompt("Mô tả lỗi (ảnh die, sai chương...):");
       if (reason) {
-          try {
-              const success = await DataProvider.sendReport(comic.id, currentChapter.id, reason);
-              if (success) {
-                  alert("Cảm ơn bạn đã báo lỗi. Admin sẽ kiểm tra sớm nhất!");
-              } else {
-                  alert("Có lỗi khi gửi báo cáo. Vui lòng thử lại.");
-              }
-          } catch (e) {
-              console.error("Report error:", e);
-              alert("Lỗi kết nối. Vui lòng kiểm tra mạng.");
+          const success = await DataProvider.sendReport(comic.id, currentChapter.id, reason);
+          if (success) {
+              alert("Đã gửi báo lỗi thành công. Cảm ơn bạn!");
+          } else {
+              alert("Gửi báo lỗi thất bại. Vui lòng thử lại sau.");
           }
       }
   };
 
-  // Logic điều hướng
-  const hasNext = comic && currentChapter && comic.chapters.findIndex(c => c.id === currentChapter.id) > 0;
-  const hasPrev = comic && currentChapter && comic.chapters.findIndex(c => c.id === currentChapter.id) < comic.chapters.length - 1;
-
   if (loading) return <div className="h-screen bg-black flex items-center justify-center text-white">Đang tải trang...</div>;
-  
   if (error) return (
       <div className="h-screen bg-black flex flex-col items-center justify-center text-white gap-4">
-          <p className="text-xl text-red-500">{error}</p>
-          <button onClick={() => navigate('/')} className="text-primary hover:underline flex items-center gap-2"><Home size={18}/> Quay về trang chủ</button>
+          <AlertCircle size={48} className="text-red-500"/>
+          <p className="text-xl">{error}</p>
+          <Link to="/" className="text-primary hover:underline">Về trang chủ</Link>
       </div>
   );
 
-  const middleIndex = Math.max(1, Math.floor(pages.length / 2));
-  
-  // Dynamic Page Title
+  const currentIndex = comic?.chapters.findIndex(c => c.id === currentChapter?.id) ?? -1;
+  const hasNext = currentIndex > 0; // Có index nhỏ hơn (chap số to hơn)
+  const hasPrev = currentIndex < (comic?.chapters.length || 0) - 1; // Có index lớn hơn (chap số nhỏ hơn)
+
   const pageTitle = comic && currentChapter 
-    ? `${comic.title} - ${currentChapter.title} | ComiVN` 
-    : 'Đọc truyện - ComiVN';
+    ? `${comic.title} - ${currentChapter.title}` 
+    : 'Đọc truyện';
 
   return (
-    <div className="bg-[#111] min-h-screen relative">
-        {/* SEO */}
+    <div className="bg-[#1a1a1a] min-h-screen text-slate-300 font-sans flex flex-col">
         <SEOHead 
             title={pageTitle}
-            description={`Đọc truyện ${comic?.title} ${currentChapter?.title} chất lượng cao.`}
+            description={`Đọc truyện ${comic?.title} ${currentChapter?.title} tiếng Việt chất lượng cao.`}
             url={window.location.href}
         />
 
-        {/* Floating Ads */}
-        <AdDisplay position="reader_float_left" />
-        <AdDisplay position="reader_float_right" />
+        {/* Global Header (Replacing the old custom header) */}
+        <Header />
 
-        {/* Top Bar (Sticky) */}
-        <div className={`fixed top-0 left-0 right-0 bg-black/90 text-white z-50 transition-transform duration-300 ${showHeader ? 'translate-y-0' : '-translate-y-full'}`}>
-            <div className="flex items-center justify-between px-4 h-14 border-b border-white/10">
-                <div className="flex items-center gap-4">
-                    <Link to={comic ? `/truyen/${comic.slug || comic.id}` : '/'} className="p-2 hover:bg-white/10 rounded-full transition-colors text-slate-300 hover:text-white">
-                        <ChevronLeft />
-                    </Link>
-                    <div className="flex flex-col">
-                        <span className="font-bold text-sm line-clamp-1 text-slate-200">{comic?.title || 'Đang đọc truyện'}</span>
-                        <span className="text-xs text-primary">{currentChapter?.title || ''}</span>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2">
-                     <button 
-                        onClick={handleReportError}
-                        className="flex items-center gap-1 p-2 hover:bg-white/10 rounded-lg text-red-400 hover:text-red-300 transition-colors"
-                        title="Báo lỗi chương truyện"
-                    >
-                        <Flag size={18} />
-                        <span className="hidden md:inline text-sm font-medium">Báo lỗi</span>
-                    </button>
-                     <Link to="/" className="p-2 hover:bg-white/10 rounded-full text-slate-300 hover:text-white" title="Trang chủ">
-                        <Home size={20} />
-                     </Link>
-                </div>
-            </div>
+        {/* Breadcrumbs & Title */}
+        <div className="container mx-auto px-4 py-4">
+             <div className="text-xs md:text-sm text-slate-500 mb-2 flex flex-wrap items-center gap-1">
+                 <Link to="/" className="hover:text-white">Trang chủ</Link> 
+                 <span>/</span>
+                 <Link to={`/truyen/${comic?.slug || comic?.id}`} className="hover:text-white">{comic?.title}</Link>
+                 <span>/</span>
+                 <span className="text-slate-300">{currentChapter?.title}</span>
+             </div>
+             <h1 className="text-xl md:text-2xl font-bold text-white mb-1">
+                 {comic?.title} - <span className="text-primary">{currentChapter?.title}</span>
+             </h1>
+             <p className="text-xs text-slate-500 italic">Cập nhật: {currentChapter?.updatedAt ? new Date(currentChapter.updatedAt).toLocaleDateString() : 'N/A'}</p>
         </div>
 
-        {/* Main Content */}
-        <div className="max-w-3xl mx-auto pt-14 pb-24 min-h-screen bg-black" onClick={() => setShowHeader(!showHeader)}>
-            <div className="p-4 bg-[#1a1a1a] mb-2">
-                <p className="text-center text-[10px] text-gray-500 mb-1">QUẢNG CÁO</p>
-                <AdDisplay position="reader_top" />
-            </div>
+        {/* Top Navigation Bar */}
+        <div className="bg-[#222] py-3 sticky top-16 md:top-16 z-30 shadow-md border-y border-white/5">
+            <div className="container mx-auto px-4 flex justify-center gap-2">
+                 <button 
+                    onClick={() => navigateChapter('prev')}
+                    disabled={!hasPrev}
+                    className={`px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-sm font-bold flex items-center gap-1 ${!hasPrev ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                    <ChevronLeft size={16}/> Trước
+                </button>
 
-            {/* Render Pages */}
-            <div className="flex flex-col items-center">
-                {pages.map((page, index) => (
-                    <React.Fragment key={page.id || index}>
-                        <img 
-                            src={page.imageUrl}
-                            alt={`Page ${page.pageNumber}`}
-                            className="w-full h-auto block"
-                            loading="lazy"
-                        />
-                        {/* Middle Ad */}
-                        {index === middleIndex && (
-                            <div className="w-full py-4 bg-[#1a1a1a]">
-                                <p className="text-center text-[10px] text-gray-500 mb-1">QUẢNG CÁO</p>
-                                <AdDisplay position="reader_middle" />
-                            </div>
-                        )}
-                    </React.Fragment>
-                ))}
-            </div>
-            
-            {/* Removed Bottom Ad Block */}
-        </div>
-
-        {/* Bottom Bar (Navigation) */}
-        <div className={`fixed bottom-0 left-0 right-0 bg-black/90 text-white z-50 border-t border-white/10 transition-transform duration-300 ${showHeader ? 'translate-y-0' : 'translate-y-full'}`}>
-             <div className="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
-                <div className="flex gap-2">
-                    <button 
-                        onClick={() => navigateChapter('prev')}
-                        disabled={!hasPrev}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium transition-colors ${!hasPrev ? 'text-slate-600 cursor-not-allowed' : 'text-slate-200 hover:bg-white/10 hover:text-white'}`}
-                    >
-                        <ChevronLeft size={20} />
-                        <span className="hidden md:inline">Chap trước</span>
-                    </button>
-                </div>
-
-                 <div className="text-sm font-medium text-slate-400">
-                    {/* Page counter or simplified text */}
-                    {pages.length > 0 ? `${pages.length} trang` : ''}
-                 </div>
+                <select 
+                    value={currentChapter?.id} 
+                    onChange={handleChapterChange}
+                    className="bg-[#333] text-white border border-white/10 rounded px-2 py-1.5 outline-none focus:border-primary text-sm max-w-[150px] md:max-w-[300px]"
+                >
+                    {comic?.chapters.map(c => (
+                        <option key={c.id} value={c.id}>{c.title}</option>
+                    ))}
+                </select>
 
                 <button 
-                     onClick={() => navigateChapter('next')}
-                     disabled={!hasNext}
-                     className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium transition-colors ${!hasNext ? 'text-slate-600 cursor-not-allowed' : 'text-slate-200 hover:bg-white/10 hover:text-white'}`}
-                >
-                    <span className="hidden md:inline">Chap sau</span>
-                    <ChevronRight size={20} />
+                         onClick={() => navigateChapter('next')}
+                         disabled={!hasNext}
+                         className={`px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-sm font-bold flex items-center gap-1 ${!hasNext ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                        Sau <ChevronRight size={16}/>
                 </button>
+            </div>
+        </div>
+        
+        <div className="container mx-auto px-4 text-center py-2">
+            <button onClick={handleReportError} className="text-xs text-slate-500 hover:text-red-400 flex items-center justify-center gap-1 w-full">
+                <Flag size={12}/> Báo lỗi chương này
+            </button>
+        </div>
+
+        {/* Ads Top */}
+        <div className="container mx-auto px-4">
+             <AdDisplay position="reader_top" />
+        </div>
+
+        {/* Content - Images */}
+        <div className="flex flex-col items-center min-h-[500px] bg-[#111] my-4 max-w-5xl mx-auto shadow-2xl">
+             {pages.map((page, idx) => (
+                <React.Fragment key={idx}>
+                     <img 
+                        src={page.imageUrl} 
+                        alt={`Trang ${page.pageNumber}`} 
+                        className="w-full h-auto max-w-full block"
+                        loading="lazy"
+                    />
+                    {idx === Math.floor(pages.length / 2) && (
+                        <div className="w-full bg-[#111] py-4">
+                            <AdDisplay position="reader_middle" />
+                        </div>
+                    )}
+                </React.Fragment>
+            ))}
+        </div>
+
+        {/* Ads Bottom */}
+        <div className="container mx-auto px-4">
+             <AdDisplay position="reader_bottom" />
+        </div>
+
+        {/* Bottom Navigation Bar */}
+        <div className="bg-[#222] py-6 border-t border-white/5 mt-6">
+             <div className="container mx-auto px-4 flex flex-col items-center gap-4">
+                 <div className="text-white font-bold text-lg">Bạn đang đọc {comic?.title} - {currentChapter?.title}</div>
+                 
+                 <div className="flex justify-center gap-2 w-full">
+                     <button 
+                        onClick={() => navigateChapter('prev')}
+                        disabled={!hasPrev}
+                        className={`px-6 py-2 rounded bg-red-600 hover:bg-red-700 text-white font-bold flex items-center gap-1 ${!hasPrev ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                        <ChevronLeft size={18}/> Chap Trước
+                    </button>
+                    
+                    <button 
+                         onClick={() => navigateChapter('next')}
+                         disabled={!hasNext}
+                         className={`px-6 py-2 rounded bg-red-600 hover:bg-red-700 text-white font-bold flex items-center gap-1 ${!hasNext ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                        Chap Sau <ChevronRight size={18}/>
+                    </button>
+                 </div>
+
+                 <div className="flex gap-4 text-sm text-slate-500 mt-2">
+                     <Link to="/" className="hover:text-primary">Trang chủ</Link>
+                     <span>•</span>
+                     <Link to={`/truyen/${comic?.slug || comic?.id}`} className="hover:text-primary">Thông tin truyện</Link>
+                 </div>
              </div>
         </div>
+
+        {/* Floating PC Ads */}
+        <AdDisplay position="reader_float_left" />
+        <AdDisplay position="reader_float_right" />
     </div>
   );
 };

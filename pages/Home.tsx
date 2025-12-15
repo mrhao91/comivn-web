@@ -63,9 +63,11 @@ const Home: React.FC = () => {
         {/* Hero Slider */}
         <div className="relative w-full h-[50vh] md:h-[60vh] overflow-hidden mb-10 group">
             {sliderComics.map((comic, index) => {
-                // FIX: Check if chapters exist. If yes, link to first available chapter. If no, link to detail page.
                 const hasChapters = comic.chapters && comic.chapters.length > 0;
-                const readLink = hasChapters ? `/doc/${comic.chapters[0].id}` : `/truyen/${comic.slug || comic.id}`;
+                // Update to SEO Friendly URL: slug-chap-number
+                const readLink = hasChapters 
+                    ? `/doc/${comic.slug || comic.id}-chap-${comic.chapters[0].number}` 
+                    : `/truyen/${comic.slug || comic.id}`;
                 const readLabel = hasChapters ? "Đọc Ngay" : "Xem Ngay";
 
                 return (

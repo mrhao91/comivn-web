@@ -1,738 +1,1203 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { DataProvider } from '../services/dataProvider';
-import { Comic, Genre, Chapter, Page, AdConfig, Comment, StaticPage, ThemeConfig, User, Report } from '../types';
-import { Plus, Trash2, Edit, Save, X, LayoutDashboard, Image as ImageIcon, Tags, Book, List, Upload, LogOut, Home, MonitorPlay, MessageSquare, FileText, CheckCircle, XCircle, Settings, Palette, Globe, Users, ShieldAlert, Eye, Loader, CheckSquare, Info, FilePlus, Link as LinkIcon, Menu as MenuIcon, Flag, Check } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { AuthService } from '../services/auth';
+import { Comic, Genre, AdConfig, User, ThemeConfig, Report, StaticPage, Chapter, Page, MediaFile } from '../types';
 import SimpleEditor from '../components/SimpleEditor';
-
-// Helper: Slug Generator
-const toSlug = (str: string) => {
-    if (!str) return '';
-    return str.toLowerCase()
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-        .replace(/[đĐ]/g, 'd')
-        .replace(/([^0-9a-z-\s])/g, '')
-        .replace(/(\s+)/g, '-')
-        .replace(/-+/g, '-').replace(/^-+|-+$/g, '');
-};
+import { Plus, Trash2, Edit, Save, LayoutDashboard, Book, Users, FileText, Settings, Image as ImageIcon, MessageSquare, AlertTriangle, Check, X, RefreshCw, Upload, Globe, Database, Link as LinkIcon, Menu, List, Copy, FolderOpen } from 'lucide-react';
+import { summarizeComic } from '../services/geminiService';
+import { DEFAULT_THEME, SEED_STATIC_PAGES } from '../services/seedData';
 
 const Admin: React.FC = () => {
-  const [comics, setComics] = useState<Comic[]>([]);
-  const [genres, setGenres] = useState<Genre[]>([]);
-  const [ads, setAds] = useState<AdConfig[]>([]);
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [staticPages, setStaticPages] = useState<StaticPage[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [reports, setReports] = useState<Report[]>([]);
-  const navigate = useNavigate();
-  
-  // Role & Auth
-  const [currentUserRole, setCurrentUserRole] = useState<string>('editor');
-  const [currentUsername, setCurrentUsername] = useState<string>('');
-
-  // UI State
-  const [activeView, setActiveView] = useState<string>('list');
-  const [editingComicId, setEditingComicId] = useState<string | null>(null);
-  const [editingChapterId, setEditingChapterId] = useState<string | null>(null);
-  const [currentComic, setCurrentComic] = useState<Comic | null>(null); 
-  const [isSaving, setIsSaving] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-
-  // Forms
-  const [comicForm, setComicForm] = useState<Partial<Comic>>({ title: '', slug: '', coverImage: '', author: '', description: '', genres: [], status: 'Đang tiến hành', views: 0, isRecommended: false, metaTitle: '', metaDescription: '', metaKeywords: '' });
-  const [chapterForm, setChapterForm] = useState<{title: string, number: number}>({ title: '', number: 0 });
-  const [chapterPages, setChapterPages] = useState<Page[]>([]);
-  const [genreForm, setGenreForm] = useState<Partial<Genre>>({ name: '', id: '', isShowHome: false, metaTitle: '', metaDescription: '', metaKeywords: '' });
-  const [adForm, setAdForm] = useState<Partial<AdConfig>>({ title: '', imageUrl: '', linkUrl: '#', position: 'home_middle', isActive: true });
-  const [editingAdId, setEditingAdId] = useState<string | null>(null);
-  const [staticPageForm, setStaticPageForm] = useState<Partial<StaticPage>>({ title: '', slug: '', content: '', metaTitle: '', metaDescription: '', metaKeywords: '' });
-  
-  const defaultTheme: ThemeConfig = { 
-      primaryColor: '#d97706', secondaryColor: '#78350f', backgroundColor: '#1c1917', cardColor: '#292524', fontFamily: 'sans', 
-      homeLayout: { showSlider: true, showHot: true, showNew: true }, siteName: 'ComiVN',
-      headerMenu: [{ label: 'Trang chủ', url: '/' }, { label: 'Thể loại', url: '/categories' }]
-  };
-  const [themeForm, setThemeForm] = useState<ThemeConfig>(defaultTheme);
-  const [userForm, setUserForm] = useState<{id?: string|number, username: string, password: string, role: string}>({ username: '', password: '', role: 'editor' });
-  const [isEditingUser, setIsEditingUser] = useState(false);
-
-  // Menu Add Form State
-  const [newMenuItem, setNewMenuItem] = useState({ label: '', url: '' });
-
-  const coverInputRef = useRef<HTMLInputElement>(null);
-  const pagesInputRef = useRef<HTMLInputElement>(null);
-  const adImageInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const role = AuthService.getRole();
-    const user = AuthService.getUser();
-    setCurrentUserRole(role);
-    if(user) setCurrentUsername(user.username);
+    const [activeTab, setActiveTab] = useState<'comics' | 'genres' | 'settings' | 'users' | 'ads' | 'reports' | 'static' | 'media'>('comics');
+    const [loading, setLoading] = useState(false);
     
-    // Check permission logic
-    if (role !== 'admin' && ['ads', 'users', 'settings', 'pages'].includes(activeView)) {
-        setActiveView('list');
-    }
-    refreshData(role);
-  }, [activeView]);
+    // Data States
+    const [comics, setComics] = useState<Comic[]>([]);
+    const [genres, setGenres] = useState<Genre[]>([]);
+    const [ads, setAds] = useState<AdConfig[]>([]);
+    const [users, setUsers] = useState<User[]>([]);
+    const [reports, setReports] = useState<Report[]>([]);
+    const [staticPages, setStaticPages] = useState<StaticPage[]>([]);
+    const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]); // New state for Media
+    const [themeConfig, setThemeConfig] = useState<ThemeConfig>(DEFAULT_THEME);
 
-  const refreshData = async (role: string) => {
-    try {
-        const c = await DataProvider.getComics();
-        setComics(Array.isArray(c) ? c : []); 
-    } catch (e) { setComics([]); }
+    // Form States
+    const [isEditing, setIsEditing] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const chapterInputRef = useRef<HTMLInputElement>(null);
+    const mediaInputRef = useRef<HTMLInputElement>(null); // New Ref for Media Tab
     
-    try {
-        const g = await DataProvider.getGenres();
-        setGenres(Array.isArray(g) ? g : []); 
-    } catch (e) { setGenres([]); }
-    
-    if (activeView === 'reports') {
-        try { const r = await DataProvider.getReports(AuthService.getToken()); setReports(Array.isArray(r) ? r : []); } catch(e) { setReports([]); }
-    }
+    // Comic Form
+    const [comicForm, setComicForm] = useState<Comic>({
+        id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false
+    });
 
-    if (activeView === 'comments') {
-        try { const c = await DataProvider.getComments(); setComments(Array.isArray(c) ? c : []); } catch(e){ setComments([]); }
-    }
+    // Chapter Form
+    const [isEditingChapter, setIsEditingChapter] = useState(false);
+    const [chapterForm, setChapterForm] = useState<{id: string, title: string, number: number, pagesContent: string}>({
+        id: '', title: '', number: 0, pagesContent: ''
+    });
+
+    // Genre Form
+    const [genreForm, setGenreForm] = useState<Genre>({ id: '', name: '', slug: '', isShowHome: false });
     
-    if (role === 'admin') {
-        if(activeView === 'ads') { try { const a = await DataProvider.getAds(); setAds(Array.isArray(a) ? a : []); } catch(e){ setAds([]); } }
-        if(activeView === 'pages') { try { const p = await DataProvider.getStaticPages(); setStaticPages(Array.isArray(p) ? p : []); } catch(e){ setStaticPages([]); } }
-        if(activeView === 'settings') { 
-            try { 
-                const t = await DataProvider.getTheme(); 
-                setThemeForm({ ...defaultTheme, ...(t || {}) }); 
-            } catch(e){} 
+    // Ad Form
+    const [adForm, setAdForm] = useState<AdConfig>({ id: '', position: 'home_middle', imageUrl: '', linkUrl: '', isActive: true, title: '' });
+
+    // User Form
+    const [userForm, setUserForm] = useState<User>({ id: 0, username: '', password: '', role: 'editor' });
+
+    // Static Page Form
+    const [staticForm, setStaticForm] = useState<StaticPage>({ slug: '', title: '', content: '' });
+
+    useEffect(() => {
+        loadData();
+    }, []);
+
+    const loadData = async () => {
+        setLoading(true);
+        try {
+            const [c, g, a, u, r, t, s, m] = await Promise.all([
+                DataProvider.getComics(),
+                DataProvider.getGenres(),
+                DataProvider.getAds(),
+                DataProvider.getUsers(),
+                DataProvider.getReports(),
+                DataProvider.getTheme(),
+                DataProvider.getStaticPages(),
+                DataProvider.getMedia()
+            ]);
+            setComics(c);
+            setGenres(g);
+            setAds(a);
+            setUsers(u);
+            setReports(r);
+            setMediaFiles(m); // Set media files
+            
+            // Merge with default to ensure structure exists
+            setThemeConfig({
+                ...DEFAULT_THEME,
+                ...t,
+                headerMenu: t.headerMenu || DEFAULT_THEME.headerMenu || [],
+                footerMenu: t.footerMenu || DEFAULT_THEME.footerMenu || [],
+                footerContent: t.footerContent || ''
+            });
+            
+            setStaticPages(s);
+        } catch (error) {
+            console.error("Load data failed", error);
+        } finally {
+            setLoading(false);
         }
-        if(activeView === 'users') { try { const u = await DataProvider.getUsers(AuthService.getToken()); setUsers(Array.isArray(u) ? u : []); } catch(e){ setUsers([]); } }
-    }
-  };
-
-  const handleLogout = () => { AuthService.logout(); navigate('/login'); };
-
-  // Handlers
-  const handleUploadCover = async (e: React.ChangeEvent<HTMLInputElement>) => { 
-      if(e.target.files?.[0]) { 
-          setIsUploading(true);
-          try {
-              const url = await DataProvider.uploadImage(e.target.files[0]); 
-              setComicForm(p=>({...p, coverImage:url})); 
-          } catch(err: any) { alert(err.message); } 
-          finally { setIsUploading(false); }
-      } 
-  };
-
-  const handleUploadAdImage = async (e: React.ChangeEvent<HTMLInputElement>) => { 
-      if(e.target.files?.[0]) { 
-          setIsUploading(true);
-          try {
-              const url = await DataProvider.uploadImage(e.target.files[0]); 
-              setAdForm(p=>({...p, imageUrl:url})); 
-          } catch(err: any) { alert(err.message); } 
-          finally { setIsUploading(false); }
-      } 
-  };
-  
-  const handleSubmitComic = async (e: React.FormEvent) => {
-    e.preventDefault(); setIsSaving(true);
-    const newComic: Comic = {
-      id: editingComicId || `comic-${Date.now()}`,
-      title: comicForm.title || 'No Title', 
-      slug: comicForm.slug || toSlug(comicForm.title || ''),
-      coverImage: comicForm.coverImage || '', 
-      author: comicForm.author || '', 
-      status: (comicForm.status === 'Hoàn thành' ? 'Hoàn thành' : 'Đang tiến hành'),
-      genres: comicForm.genres || [], description: comicForm.description || '', views: comicForm.views || 0,
-      chapters: editingComicId ? (comics.find(c=>c.id===editingComicId)?.chapters||[]) : [],
-      isRecommended: comicForm.isRecommended, 
-      metaTitle: comicForm.metaTitle, metaDescription: comicForm.metaDescription, metaKeywords: comicForm.metaKeywords
     };
-    await DataProvider.saveComic(newComic, AuthService.getToken());
-    setIsSaving(false); refreshData(currentUserRole); setComicForm({title:'', slug:'', coverImage:'', author:'', description:'', genres:[], status:'Đang tiến hành', views:0}); setEditingComicId(null); setActiveView('list');
-  };
 
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => { 
-      const t = e.target.value; const s = toSlug(t); 
-      setComicForm(p => ({...p, title: t, slug: (!p.slug || p.slug !== s) ? s : p.slug })); 
-  };
+    // --- UPLOAD HELPER ---
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetField: 'comic' | 'ad') => {
+        if (e.target.files && e.target.files[0]) {
+            setUploading(true);
+            try {
+                const url = await DataProvider.uploadImage(e.target.files[0]);
+                if (url) {
+                    if (targetField === 'comic') {
+                        setComicForm(prev => ({ ...prev, coverImage: url }));
+                    } else if (targetField === 'ad') {
+                        setAdForm(prev => ({ ...prev, imageUrl: url }));
+                    }
+                } else {
+                    alert("Upload thất bại. Vui lòng kiểm tra lại server.");
+                }
+            } catch (error) {
+                console.error(error);
+                alert("Lỗi khi upload ảnh.");
+            } finally {
+                setUploading(false);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+            }
+        }
+    };
 
-  // Safe Rendering Helpers
-  const renderSEOFields = (form: any, setForm: any) => (
-      <div className="bg-white/5 p-4 rounded-xl border border-white/10 mt-6">
-          <h3 className="text-white font-bold flex items-center gap-2 mb-4"><Globe className="text-blue-400" size={18} /> Cấu hình SEO</h3>
-          <div className="space-y-4">
-              <div><label className="text-sm text-slate-400 block mb-1">Meta Title</label><input type="text" value={form.metaTitle || ''} onChange={e => setForm({...form, metaTitle: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white text-sm"/></div>
-              <div><label className="text-sm text-slate-400 block mb-1">Meta Description</label><textarea value={form.metaDescription || ''} onChange={e => setForm({...form, metaDescription: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white text-sm" rows={2}/></div>
-              <div><label className="text-sm text-slate-400 block mb-1">Meta Keywords</label><input type="text" value={form.metaKeywords || ''} onChange={e => setForm({...form, metaKeywords: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white text-sm"/></div>
-          </div>
-      </div>
-  );
+    const handleChapterImagesUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            setUploading(true);
+            try {
+                const newUrls: string[] = [];
+                for (let i = 0; i < e.target.files.length; i++) {
+                    const file = e.target.files[i];
+                    const url = await DataProvider.uploadImage(file);
+                    if (url) newUrls.push(url);
+                }
+                
+                setChapterForm(prev => ({
+                    ...prev,
+                    pagesContent: prev.pagesContent + (prev.pagesContent ? '\n' : '') + newUrls.join('\n')
+                }));
+            } catch (error) {
+                console.error(error);
+                alert("Lỗi khi upload ảnh chapter.");
+            } finally {
+                setUploading(false);
+                if (chapterInputRef.current) chapterInputRef.current.value = '';
+            }
+        }
+    };
 
-  // Get Ad Dimension Hint
-  const getAdSizeHint = (pos?: string) => {
-    switch (pos) {
-        case 'home_header': return 'Gợi ý: 1200x250px (Banner lớn đầu trang)';
-        case 'home_middle':
-        case 'home_bottom': return 'Gợi ý: 1200x200px (Banner ngang dài)';
-        case 'detail_sidebar': return 'Gợi ý: 300x250px hoặc 300x600px (Vuông hoặc Dọc)';
-        case 'detail_bottom': return 'Gợi ý: 1000x150px (Banner ngang)';
-        case 'reader_top':
-        case 'reader_middle':
-        case 'reader_bottom': return 'Gợi ý: 800x150px (Banner ngang nhỏ)';
-        case 'reader_float_left':
-        case 'reader_float_right': return 'Gợi ý: 300x600px (Banner dọc chạy theo màn hình)';
-        default: return '';
-    }
-  };
+    // --- MEDIA TAB LOGIC ---
+    const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            setUploading(true);
+            try {
+                // Upload sequentially
+                for (let i = 0; i < e.target.files.length; i++) {
+                    await DataProvider.uploadImage(e.target.files[i]);
+                }
+                // Reload media list
+                const m = await DataProvider.getMedia();
+                setMediaFiles(m);
+            } catch (error) {
+                console.error(error);
+                alert("Lỗi khi upload ảnh vào thư viện.");
+            } finally {
+                setUploading(false);
+                if (mediaInputRef.current) mediaInputRef.current.value = '';
+            }
+        }
+    };
 
-  // Define required system pages
-  const SYSTEM_PAGES = [
-      { title: 'Điều Khoản Sử Dụng', slug: 'dieu-khoan' },
-      { title: 'Chính Sách Riêng Tư', slug: 'chinh-sach-rieng-tu' },
-      { title: 'Liên Hệ', slug: 'lien-he' }
-  ];
+    const handleDeleteMedia = async (fileName: string) => {
+        if (window.confirm(`Bạn có chắc muốn xóa file: ${fileName}? Hành động này không thể hoàn tác.`)) {
+            const success = await DataProvider.deleteMedia(fileName);
+            if (success) {
+                const m = await DataProvider.getMedia();
+                setMediaFiles(m);
+            } else {
+                alert("Xóa thất bại (File có thể không tồn tại hoặc lỗi quyền).");
+            }
+        }
+    };
 
-  // Helper for Settings View: Add Menu Item
-  const handleAddMenuItem = () => {
-      if (!newMenuItem.label || !newMenuItem.url) return;
-      const currentMenu = themeForm.headerMenu || [];
-      setThemeForm({ ...themeForm, headerMenu: [...currentMenu, newMenuItem] });
-      setNewMenuItem({ label: '', url: '' });
-  };
+    const copyToClipboard = (text: string) => {
+        // Resolve absolute URL if needed, but usually relative URL from DataProvider is enough for <img> src
+        // But for admin usage, let's provide the full URL if it starts with /
+        let urlToCopy = text;
+        if (text.startsWith('/')) {
+            urlToCopy = `${window.location.origin}${text}`;
+        }
+        
+        navigator.clipboard.writeText(urlToCopy).then(() => {
+            alert("Đã copy link ảnh!");
+        }).catch(err => {
+            console.error('Could not copy text: ', err);
+        });
+    };
 
-  const handleDeleteMenuItem = (index: number) => {
-      const currentMenu = themeForm.headerMenu || [];
-      const newMenu = currentMenu.filter((_, i) => i !== index);
-      setThemeForm({ ...themeForm, headerMenu: newMenu });
-  };
+    const formatFileSize = (bytes: number) => {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
 
-  return (
-    <div className="min-h-screen bg-darker p-4 md:p-8">
-        <div className="max-w-7xl mx-auto">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4 border-b border-white/10 pb-6">
-                <div className="flex items-center gap-4">
-                     <div className="w-12 h-12 bg-primary/20 rounded-xl flex items-center justify-center text-primary"><LayoutDashboard size={24} /></div>
-                     <div><h1 className="text-2xl font-bold text-white">CMS Admin</h1><div className="text-sm text-slate-400">Xin chào, <span className="text-white font-bold">{currentUsername}</span></div></div>
-                </div>
-                <div className="flex gap-3">
-                    <button onClick={() => navigate('/')} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg flex items-center gap-2 text-sm"><Home size={16} /> Website</button>
-                    <button onClick={handleLogout} className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg flex items-center gap-2 text-sm"><LogOut size={16} /> Đăng xuất</button>
-                </div>
+    // --- COMIC LOGIC ---
+    const handleStartEdit = async (comicId: string) => {
+        setLoading(true);
+        // Clear previous state first to show empty form/loader
+        setComicForm({ id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false });
+        
+        try {
+            // Lấy dữ liệu chi tiết đầy đủ (bao gồm full chapters) thay vì dùng dữ liệu list
+            const fullComic = await DataProvider.getComicById(comicId);
+            if (fullComic) {
+                setComicForm(fullComic);
+                setIsEditing(true);
+            } else {
+                alert("Không tìm thấy thông tin truyện.");
+            }
+        } catch (error) {
+            console.error("Error fetching comic details:", error);
+            alert("Lỗi khi tải thông tin truyện.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSaveComic = async () => {
+        const id = comicForm.id || `comic-${Date.now()}`;
+        // Auto slug generation if empty
+        let slug = comicForm.slug;
+        if (!slug && comicForm.title) {
+            slug = comicForm.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "d").replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-");
+        }
+        
+        const newComic = { ...comicForm, id, slug };
+        await DataProvider.saveComic(newComic);
+        setIsEditing(false);
+        loadData();
+    };
+    const handleDeleteComic = async (id: string) => {
+        if(window.confirm('Xóa truyện này?')) { await DataProvider.deleteComic(id); loadData(); }
+    };
+    const handleAutoSummarize = async () => {
+        if (!comicForm.title || !comicForm.description) { alert("Cần nhập tên và mô tả trước."); return; }
+        const summary = await summarizeComic(comicForm.title, comicForm.description);
+        setComicForm({...comicForm, description: summary});
+    };
+
+    // --- CHAPTER LOGIC ---
+    const handleEditChapter = async (chapter: Chapter) => {
+        setLoading(true);
+        const pages = await DataProvider.getChapterPages(chapter.id);
+        setChapterForm({
+            id: chapter.id,
+            title: chapter.title,
+            number: chapter.number,
+            pagesContent: pages.map(p => p.imageUrl).join('\n')
+        });
+        setIsEditingChapter(true);
+        setLoading(false);
+    };
+
+    const handleAddChapter = () => {
+        // Auto calculate next chapter number
+        const nextNum = comicForm.chapters.length > 0 ? Math.max(...comicForm.chapters.map(c => c.number)) + 1 : 1;
+        setChapterForm({
+            id: '',
+            title: `Chapter ${nextNum}`,
+            number: nextNum,
+            pagesContent: ''
+        });
+        setIsEditingChapter(true);
+    };
+
+    // Chức năng thêm nhanh Chapter từ danh sách truyện
+    const handleQuickAddChapter = async (comicId: string) => {
+        setLoading(true);
+        try {
+            const fullComic = await DataProvider.getComicById(comicId);
+            if(fullComic) {
+                setComicForm(fullComic);
+                setIsEditing(true);
+                const nextNum = fullComic.chapters && fullComic.chapters.length > 0 ? Math.max(...fullComic.chapters.map(c => c.number)) + 1 : 1;
+                setChapterForm({
+                    id: '',
+                    title: `Chapter ${nextNum}`,
+                    number: nextNum,
+                    pagesContent: ''
+                });
+                setIsEditingChapter(true);
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSaveChapter = async () => {
+        if (!comicForm.id) {
+            alert("Vui lòng lưu truyện trước khi thêm chapter.");
+            return;
+        }
+
+        setUploading(true);
+        const chapterId = chapterForm.id || `${comicForm.id}-chapter-${Date.now()}`;
+        const pages: Page[] = chapterForm.pagesContent.split('\n')
+            .map(line => line.trim())
+            .filter(Boolean)
+            .map((url, idx) => ({ imageUrl: url, pageNumber: idx + 1 }));
+
+        const newChapter: Chapter = {
+            id: chapterId,
+            comicId: comicForm.id,
+            number: chapterForm.number,
+            title: chapterForm.title,
+            updatedAt: new Date().toISOString()
+        };
+
+        await DataProvider.saveChapter(newChapter, pages);
+        
+        // Reload comic details (specifically chapters)
+        const updatedComic = await DataProvider.getComicById(comicForm.id);
+        if (updatedComic) {
+            setComicForm(updatedComic);
+        }
+        
+        setUploading(false);
+        setIsEditingChapter(false);
+    };
+
+    const handleDeleteChapter = async (id: string) => {
+        if(window.confirm('Xóa chapter này?')) { 
+            await DataProvider.deleteChapter(id, comicForm.id);
+            const updatedComic = await DataProvider.getComicById(comicForm.id);
+            if (updatedComic) setComicForm(updatedComic);
+        }
+    };
+
+
+    // --- GENRE LOGIC ---
+    const handleSaveGenre = async () => {
+        const id = genreForm.id || `g-${Date.now()}`;
+        const slug = genreForm.slug || genreForm.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "d").replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-");
+        await DataProvider.saveGenre({ ...genreForm, id, slug });
+        setGenreForm({ id: '', name: '', slug: '', isShowHome: false });
+        loadData();
+    };
+    const handleDeleteGenre = async (id: string) => {
+        if(window.confirm('Xóa thể loại này?')) { await DataProvider.deleteGenre(id); loadData(); }
+    };
+
+    // --- AD LOGIC ---
+    const handleSaveAd = async () => {
+        const id = adForm.id || `ad-${Date.now()}`;
+        await DataProvider.saveAd({ ...adForm, id });
+        setAdForm({ id: '', position: 'home_middle', imageUrl: '', linkUrl: '', isActive: true, title: '' });
+        loadData();
+    };
+    const handleDeleteAd = async (id: string) => {
+        if(window.confirm('Xóa quảng cáo này?')) { await DataProvider.deleteAd(id); loadData(); }
+    };
+
+    // --- USER LOGIC ---
+    const handleSaveUser = async () => {
+        await DataProvider.saveUser(userForm);
+        setUserForm({ id: 0, username: '', password: '', role: 'editor' });
+        loadData();
+    };
+    const handleDeleteUser = async (id: string | number) => {
+        if(window.confirm('Xóa thành viên này?')) { await DataProvider.deleteUser(id); loadData(); }
+    };
+
+    // --- THEME LOGIC ---
+    const handleSaveTheme = async () => {
+        await DataProvider.saveTheme(themeConfig);
+        alert("Đã lưu cấu hình giao diện!");
+        // Reload page to apply changes
+        window.location.reload();
+    };
+
+    // Helper functions for Menu Management
+    const addMenuItem = () => {
+        const currentMenu = themeConfig.headerMenu || [];
+        setThemeConfig({
+            ...themeConfig,
+            headerMenu: [...currentMenu, { label: 'Menu Mới', url: '/' }]
+        });
+    };
+
+    const updateMenuItem = (index: number, field: 'label' | 'url', value: string) => {
+        const currentMenu = [...(themeConfig.headerMenu || [])];
+        if (currentMenu[index]) {
+            currentMenu[index] = { ...currentMenu[index], [field]: value };
+            setThemeConfig({ ...themeConfig, headerMenu: currentMenu });
+        }
+    };
+
+    const removeMenuItem = (index: number) => {
+        const currentMenu = [...(themeConfig.headerMenu || [])];
+        currentMenu.splice(index, 1);
+        setThemeConfig({ ...themeConfig, headerMenu: currentMenu });
+    };
+
+    // Helper functions for Footer Menu
+    const addFooterMenuItem = () => {
+        const currentMenu = themeConfig.footerMenu || [];
+        setThemeConfig({
+            ...themeConfig,
+            footerMenu: [...currentMenu, { label: 'Link Mới', url: '/' }]
+        });
+    };
+
+    const updateFooterMenuItem = (index: number, field: 'label' | 'url', value: string) => {
+        const currentMenu = [...(themeConfig.footerMenu || [])];
+        if (currentMenu[index]) {
+            currentMenu[index] = { ...currentMenu[index], [field]: value };
+            setThemeConfig({ ...themeConfig, footerMenu: currentMenu });
+        }
+    };
+
+    const removeFooterMenuItem = (index: number) => {
+        const currentMenu = [...(themeConfig.footerMenu || [])];
+        currentMenu.splice(index, 1);
+        setThemeConfig({ ...themeConfig, footerMenu: currentMenu });
+    };
+
+    // --- STATIC PAGES LOGIC ---
+    const handleSaveStatic = async () => {
+        await DataProvider.saveStaticPage(staticForm);
+        setStaticForm({ slug: '', title: '', content: '' });
+        loadData();
+    };
+
+    const handleSeedStaticPages = async () => {
+        if(window.confirm('Bạn có chắc chắn muốn tạo các trang mẫu (Điều khoản, Liên hệ, v.v.) không?')) {
+            for (const page of SEED_STATIC_PAGES) {
+                await DataProvider.saveStaticPage(page);
+            }
+            loadData();
+            alert("Đã tạo xong!");
+        }
+    };
+
+    // --- REPORT LOGIC ---
+    const handleDeleteReport = async (id: string) => {
+         if(window.confirm('Xóa báo cáo này?')) { await DataProvider.deleteReport(id); loadData(); }
+    };
+
+
+    // === RENDER TABS ===
+
+    const renderComicsTab = () => (
+        <div className="space-y-6">
+            <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-white">Quản lý Truyện</h2>
+                {!isEditing && (
+                    <button onClick={() => {
+                        setComicForm({ id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false });
+                        setIsEditing(true);
+                    }} className="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium">
+                        <Plus size={18} /> Thêm Truyện
+                    </button>
+                )}
             </div>
 
-            {/* Access Check */}
-            {(currentUserRole !== 'admin' && ['ads', 'users', 'settings', 'pages'].includes(activeView)) ? (
-                <div className="flex flex-col items-center justify-center py-20 bg-card rounded-xl border border-red-500/20 text-center">
-                    <ShieldAlert size={48} className="text-red-500 mb-4" /><h2 className="text-2xl font-bold text-white mb-2">Truy cập bị từ chối</h2>
-                    <button onClick={() => setActiveView('list')} className="px-6 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg">Quay lại</button>
-                </div>
-            ) : (
-            <>
-                {/* Menu Tabs */}
-                <div className="flex mb-6 overflow-x-auto pb-2 gap-2 custom-scrollbar">
-                    <button onClick={() => setActiveView('list')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 flex-shrink-0 ${activeView === 'list' ? 'bg-primary text-white' : 'bg-card text-slate-400'}`}><Book size={16}/> Truyện</button>
-                    <button onClick={() => setActiveView('genres')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 flex-shrink-0 ${activeView === 'genres' ? 'bg-primary text-white' : 'bg-card text-slate-400'}`}><Tags size={16}/> Thể loại</button>
-                    <button onClick={() => setActiveView('reports')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 flex-shrink-0 ${activeView === 'reports' ? 'bg-primary text-white' : 'bg-card text-slate-400'}`}><Flag size={16}/> Báo Lỗi</button>
-                    {/* Only show other tabs if admin */}
-                    {currentUserRole === 'admin' && (<>
-                        <button onClick={() => setActiveView('ads')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 flex-shrink-0 ${activeView === 'ads' ? 'bg-primary text-white' : 'bg-card text-slate-400'}`}><MonitorPlay size={16}/> Quảng Cáo</button>
-                        <button onClick={() => setActiveView('pages')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 flex-shrink-0 ${activeView === 'pages' ? 'bg-primary text-white' : 'bg-card text-slate-400'}`}><FileText size={16}/> Trang Tĩnh</button>
-                        <button onClick={() => setActiveView('users')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 flex-shrink-0 ${activeView === 'users' ? 'bg-primary text-white' : 'bg-card text-slate-400'}`}><Users size={16}/> Tài Khoản</button>
-                        <button onClick={() => setActiveView('settings')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 flex-shrink-0 ${activeView === 'settings' ? 'bg-primary text-white' : 'bg-card text-slate-400'}`}><Settings size={16}/> Cấu Hình</button>
-                    </>)}
-                    <div className="flex-grow"></div>
-                    <button onClick={() => { setComicForm({title: '', slug: '', coverImage: '', author: '', description: '', genres: [], status: 'Đang tiến hành', views: 0}); setEditingComicId(null); setActiveView('add-comic'); }} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 flex-shrink-0 bg-green-600 hover:bg-green-700 text-white shadow`}><Plus size={16} /> Thêm Truyện</button>
-                </div>
-
-                {/* --- VIEWS --- */}
-                
-                {/* 1. COMIC LIST */}
-                {activeView === 'list' && (
-                    <div className="bg-card rounded-xl border border-white/10 overflow-hidden shadow-xl">
-                        <table className="w-full text-left">
-                            <thead className="bg-white/5 text-slate-400 text-sm uppercase font-bold"><tr><th className="p-4">Cover</th><th className="p-4">Thông tin</th><th className="p-4">Views</th><th className="p-4">Trạng thái</th><th className="p-4 text-right">Hành động</th></tr></thead>
-                            <tbody className="divide-y divide-white/5">
-                                {Array.isArray(comics) && comics.map(c => (
-                                    <tr key={c.id} className="text-slate-300 hover:bg-white/5">
-                                        <td className="p-4 w-20"><img src={c.coverImage || 'https://via.placeholder.com/50'} className="w-12 h-16 object-cover rounded bg-dark border border-white/10" /></td>
-                                        <td className="p-4"><div className="font-bold text-white mb-1">{c.title}</div><div className="text-xs text-slate-500">{Array.isArray(c.genres) ? c.genres.join(', ') : ''} • {c.chapters?.length || 0} chương</div></td>
-                                        <td className="p-4 text-white font-bold">{c.views?.toLocaleString()}</td>
-                                        <td className="p-4">
-                                            {/* Fix Status Display logic if data is corrupted */}
-                                            <span className={`text-xs px-2 py-1 rounded font-bold ${c.status === 'Hoàn thành' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
-                                                {c.status && c.status.includes('Hoàn') ? 'Hoàn thành' : 'Đang tiến hành'}
-                                            </span>
-                                        </td>
-                                        <td className="p-4 text-right whitespace-nowrap">
-                                            <button onClick={() => { setCurrentComic(c); setActiveView('manage-chapters'); }} className="text-xs bg-primary/20 text-primary px-3 py-1 rounded mr-2">Chapters</button>
-                                            <button onClick={() => { setComicForm({...c}); setEditingComicId(c.id); setActiveView('edit-comic'); }} className="p-2 text-blue-400"><Edit size={18} /></button>
-                                            <button onClick={async () => { if(window.confirm('Xóa?')) { await DataProvider.deleteComic(c.id, AuthService.getToken()); refreshData(currentUserRole); } }} className="p-2 text-red-400"><Trash2 size={18} /></button>
-                                        </td>
-                                    </tr>
-                                ))}
-                                {comics.length === 0 && (<tr><td colSpan={5} className="p-8 text-center text-slate-500">Chưa có dữ liệu.</td></tr>)}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-
-                {/* 2. GENRES LIST */}
-                {activeView === 'genres' && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                        <div className="md:col-span-1">
-                            <div className="bg-card rounded-xl border border-white/10 p-6 sticky top-4">
-                                <h2 className="text-xl font-bold text-white mb-6">Thêm Thể Loại</h2>
-                                <form onSubmit={async (e) => { e.preventDefault(); await DataProvider.saveGenre({ ...genreForm, id: genreForm.id || `g-${Date.now()}`, slug: toSlug(genreForm.name!) } as Genre, AuthService.getToken()); setGenreForm({}); refreshData(currentUserRole); }} className="space-y-4">
-                                    <input type="text" placeholder="Tên thể loại" required value={genreForm.name || ''} onChange={e => setGenreForm({...genreForm, name: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-3 text-white"/>
-                                    <label className="flex items-center gap-2"><input type="checkbox" checked={genreForm.isShowHome || false} onChange={e => setGenreForm({...genreForm, isShowHome: e.target.checked})}/> Hiển thị Home</label>
-                                    <button type="submit" className="w-full bg-primary text-white py-2 rounded font-bold">Lưu</button>
-                                </form>
-                            </div>
-                        </div>
-                        <div className="md:col-span-2 flex flex-col gap-3">
-                            {Array.isArray(genres) && genres.map(g => (
-                                <div key={g.id} className="bg-card p-4 rounded-xl border border-white/10 flex justify-between items-center">
-                                    <div><div className="font-bold text-white">{g.name}</div><div className="text-xs text-slate-500">{g.slug}</div></div>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => setGenreForm(g)} className="p-2 text-blue-400"><Edit size={16}/></button>
-                                        <button onClick={async () => { if(window.confirm('Xóa?')) { await DataProvider.deleteGenre(g.id, AuthService.getToken()); refreshData(currentUserRole); } }} className="p-2 text-red-400"><Trash2 size={16}/></button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-                
-                {/* REPORT LIST */}
-                {activeView === 'reports' && (
-                    <div className="bg-card rounded-xl border border-white/10 overflow-hidden shadow-xl">
-                         <div className="p-4 border-b border-white/10">
-                             <h2 className="text-xl font-bold text-white">Danh Sách Báo Lỗi</h2>
-                             <p className="text-xs text-slate-500">Người dùng báo cáo lỗi khi đọc truyện</p>
-                         </div>
-                        <table className="w-full text-left">
-                            <thead className="bg-white/5 text-slate-400 text-sm uppercase font-bold"><tr><th className="p-4">Truyện</th><th className="p-4">Chương</th><th className="p-4">Nội dung lỗi</th><th className="p-4">Thời gian</th><th className="p-4 text-right">Xử lý</th></tr></thead>
-                            <tbody className="divide-y divide-white/5">
-                                {Array.isArray(reports) && reports.map(r => (
-                                    <tr key={r.id} className="text-slate-300 hover:bg-white/5">
-                                        <td className="p-4 font-bold text-white">{r.comicTitle || r.comicId}</td>
-                                        <td className="p-4 text-primary">{r.chapterTitle || r.chapterId}</td>
-                                        <td className="p-4 text-red-400">{r.message}</td>
-                                        <td className="p-4 text-xs text-slate-500">{new Date(r.created_at).toLocaleString('vi-VN')}</td>
-                                        <td className="p-4 text-right">
-                                            <button 
-                                                onClick={async () => { 
-                                                    if(window.confirm('Đánh dấu đã xử lý và xóa báo cáo?')) { 
-                                                        await DataProvider.deleteReport(r.id, AuthService.getToken()); 
-                                                        refreshData(currentUserRole); 
-                                                    } 
-                                                }} 
-                                                className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs flex items-center gap-1 ml-auto"
-                                            >
-                                                <Check size={14} /> Đã xong
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                                {reports.length === 0 && (<tr><td colSpan={5} className="p-8 text-center text-slate-500 italic">Không có báo lỗi nào.</td></tr>)}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-
-                {/* 3. ADS VIEW (Updated with Upload) */}
-                {activeView === 'ads' && (
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                        <div className="lg:col-span-1">
-                            <div className="bg-card rounded-xl border border-white/10 p-6">
-                                <h2 className="text-xl font-bold text-white mb-6">Thêm Quảng Cáo</h2>
-                                <form onSubmit={async (e) => { e.preventDefault(); await DataProvider.saveAd({ ...adForm, id: adForm.id || `ad-${Date.now()}` } as AdConfig, AuthService.getToken()); setAdForm({ title: '', imageUrl: '', linkUrl: '#', position: 'home_middle', isActive: true }); refreshData(currentUserRole); }} className="space-y-4">
-                                    <div>
-                                        <label className="text-xs text-slate-400 mb-1 block">Vị trí hiển thị</label>
-                                        <select value={adForm.position} onChange={e => setAdForm({...adForm, position: e.target.value as any})} className="w-full bg-dark border border-white/10 rounded p-3 text-white mb-1">
-                                            <option value="home_header">Trang chủ (Đầu trang)</option>
-                                            <option value="home_middle">Trang chủ (Giữa)</option>
-                                            <option value="home_bottom">Trang chủ (Cuối)</option>
-                                            <option value="detail_sidebar">Chi tiết (Cột bên)</option>
-                                            <option value="detail_bottom">Chi tiết (Cuối)</option>
-                                            <option value="reader_top">Đọc truyện (Đầu)</option>
-                                            <option value="reader_middle">Đọc truyện (Giữa các ảnh)</option>
-                                            <option value="reader_bottom">Đọc truyện (Cuối)</option>
-                                            <option value="reader_float_left">Đọc truyện (Trôi Trái)</option>
-                                            <option value="reader_float_right">Đọc truyện (Trôi Phải)</option>
-                                        </select>
-                                        <p className="text-xs text-yellow-500 flex items-center gap-1">
-                                            <Info size={12}/> {getAdSizeHint(adForm.position)}
-                                        </p>
-                                    </div>
-
-                                    <input type="text" placeholder="Tiêu đề (tuỳ chọn)" value={adForm.title || ''} onChange={e => setAdForm({...adForm, title: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-3 text-white"/>
-                                    
-                                    <div>
-                                        <label className="text-xs text-slate-400 mb-1 block">Hình ảnh Banner</label>
-                                        <div className="flex gap-2">
-                                            <input type="text" placeholder="Link ảnh hoặc upload" required value={adForm.imageUrl || ''} onChange={e => setAdForm({...adForm, imageUrl: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-3 text-white"/>
-                                            <button type="button" disabled={isUploading} onClick={() => adImageInputRef.current?.click()} className="bg-white/10 px-4 rounded text-white hover:bg-white/20">
-                                                {isUploading ? <Loader className="animate-spin" size={18}/> : <Upload size={18}/>}
-                                            </button>
-                                            <input type="file" ref={adImageInputRef} className="hidden" onChange={handleUploadAdImage} accept="image/*" />
-                                        </div>
-                                        {adForm.imageUrl && <img src={adForm.imageUrl} className="mt-2 w-full h-24 object-contain bg-black/20 rounded border border-white/5" alt="Preview"/>}
-                                    </div>
-
-                                    <input type="text" placeholder="Link đích" value={adForm.linkUrl || ''} onChange={e => setAdForm({...adForm, linkUrl: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-3 text-white"/>
-                                    
-                                    <label className="flex items-center gap-2"><input type="checkbox" checked={adForm.isActive || false} onChange={e => setAdForm({...adForm, isActive: e.target.checked})}/> Kích hoạt</label>
-                                    <button type="submit" className="w-full bg-primary text-white py-2 rounded font-bold">Lưu</button>
-                                </form>
-                            </div>
-                        </div>
-                        <div className="lg:col-span-2 space-y-4">
-                            {ads.map(ad => (
-                                <div key={ad.id} className="bg-card p-4 rounded-xl border border-white/10 flex items-start gap-4">
-                                    <img src={ad.imageUrl} className="w-32 h-20 object-cover rounded bg-dark" />
-                                    <div className="flex-1">
-                                        <div className="font-bold text-white">{ad.title || 'Không tiêu đề'}</div>
-                                        <div className="text-xs text-slate-500">Vị trí: {ad.position} • {ad.isActive ? <span className="text-green-400">Hiện</span> : <span className="text-red-400">Ẩn</span>}</div>
-                                        <div className="text-xs text-blue-400 truncate">{ad.linkUrl}</div>
-                                    </div>
-                                    <div className="flex flex-col gap-2">
-                                        <button onClick={() => setAdForm(ad)} className="p-2 bg-white/5 rounded hover:bg-white/10"><Edit size={16}/></button>
-                                        <button onClick={async () => { if(window.confirm('Xóa?')) { await DataProvider.deleteAd(ad.id, AuthService.getToken()); refreshData(currentUserRole); } }} className="p-2 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20"><Trash2 size={16}/></button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-                
-                {/* 4. STATIC PAGES VIEW (Updated) */}
-                {activeView === 'pages' && (
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                         <div className="lg:col-span-2">
-                            <div className="bg-card rounded-xl border border-white/10 p-6">
-                                <h2 className="text-xl font-bold text-white mb-6">Editor Trang Tĩnh</h2>
-                                <form onSubmit={async (e) => { e.preventDefault(); await DataProvider.saveStaticPage(staticPageForm as StaticPage); setStaticPageForm({title: '', slug: '', content: ''}); refreshData(currentUserRole); alert('Đã lưu!'); }} className="space-y-4">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <input type="text" placeholder="Tiêu đề trang" required value={staticPageForm.title || ''} onChange={e => { const t = e.target.value; setStaticPageForm({...staticPageForm, title: t, slug: toSlug(t)}) }} className="bg-dark border border-white/10 rounded p-3 text-white"/>
-                                        <input type="text" placeholder="Slug (URL)" required value={staticPageForm.slug || ''} onChange={e => setStaticPageForm({...staticPageForm, slug: e.target.value})} className="bg-dark border border-white/10 rounded p-3 text-white"/>
-                                    </div>
-                                    <SimpleEditor value={staticPageForm.content || ''} onChange={v => setStaticPageForm({...staticPageForm, content: v})} label="Nội dung trang" height="400px"/>
-                                    {renderSEOFields(staticPageForm, setStaticPageForm)}
-                                    <button type="submit" className="bg-primary text-white px-8 py-2 rounded font-bold">Lưu Trang</button>
-                                </form>
-                            </div>
-                         </div>
-                         <div className="lg:col-span-1 space-y-6">
-                             {/* System Pages Section */}
-                             <div>
-                                 <h3 className="font-bold text-white mb-3 flex items-center gap-2"><FileText size={18}/> Trang Hệ Thống</h3>
-                                 <div className="space-y-2">
-                                     {SYSTEM_PAGES.map(sp => {
-                                         const existing = staticPages.find(p => p.slug === sp.slug);
-                                         return (
-                                             <div key={sp.slug} className={`p-3 rounded-lg border flex justify-between items-center ${existing ? 'bg-green-500/10 border-green-500/20' : 'bg-white/5 border-white/10 border-dashed'}`}>
-                                                 <div>
-                                                     <div className={`font-bold ${existing ? 'text-green-400' : 'text-slate-400'}`}>{sp.title}</div>
-                                                     <div className="text-[10px] text-slate-500">{sp.slug}</div>
-                                                 </div>
-                                                 <button 
-                                                    onClick={() => {
-                                                        if (existing) setStaticPageForm(existing);
-                                                        else setStaticPageForm({ title: sp.title, slug: sp.slug, content: `<h2>${sp.title}</h2><p>Nội dung đang cập nhật...</p>` });
-                                                    }}
-                                                    className={`px-3 py-1 rounded text-xs font-bold ${existing ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-primary text-white hover:bg-primary/90'}`}
-                                                 >
-                                                     {existing ? 'Sửa' : 'Tạo nhanh'}
-                                                 </button>
-                                             </div>
-                                         )
-                                     })}
-                                 </div>
-                             </div>
-
-                             {/* Other Pages Section */}
-                             <div>
-                                 <h3 className="font-bold text-white mb-3 flex items-center gap-2"><FilePlus size={18}/> Trang Khác</h3>
-                                 <div className="space-y-2">
-                                     {staticPages.filter(p => !SYSTEM_PAGES.some(sp => sp.slug === p.slug)).map(p => (
-                                         <div key={p.slug} className="bg-card p-4 rounded-xl border border-white/10 group">
-                                             <div className="flex justify-between items-start">
-                                                 <div>
-                                                     <div className="font-bold text-white">{p.title}</div>
-                                                     <div className="text-xs text-slate-500 mb-2">/p/{p.slug}</div>
-                                                 </div>
-                                                 <button onClick={() => setStaticPageForm(p)} className="p-1.5 bg-white/5 rounded text-blue-400 hover:bg-white/10"><Edit size={14}/></button>
-                                             </div>
-                                         </div>
-                                     ))}
-                                     {staticPages.filter(p => !SYSTEM_PAGES.some(sp => sp.slug === p.slug)).length === 0 && (
-                                         <p className="text-xs text-slate-500 italic">Chưa có trang tuỳ chỉnh nào.</p>
-                                     )}
-                                 </div>
-                             </div>
-                         </div>
-                    </div>
-                )}
-                
-                {/* 5. USERS VIEW (Was Missing) */}
-                {activeView === 'users' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {isEditing ? (
+                <div className="bg-card border border-white/10 p-6 rounded-xl animate-in fade-in">
+                    {/* Comic Info Form */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <div>
-                             <div className="bg-card rounded-xl border border-white/10 p-6">
-                                <h2 className="text-xl font-bold text-white mb-6">Quản lý Tài Khoản</h2>
-                                <form onSubmit={async (e) => { e.preventDefault(); await DataProvider.saveUser(userForm as User, AuthService.getToken()); setUserForm({username: '', password: '', role: 'editor'}); setIsEditingUser(false); refreshData(currentUserRole); }} className="space-y-4">
-                                    <input type="text" placeholder="Tên đăng nhập" required value={userForm.username} onChange={e => setUserForm({...userForm, username: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-3 text-white"/>
-                                    <input type="text" placeholder="Mật khẩu (Để trống nếu không đổi)" required={!isEditingUser} value={userForm.password} onChange={e => setUserForm({...userForm, password: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-3 text-white"/>
-                                    <select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value as any})} className="w-full bg-dark border border-white/10 rounded p-3 text-white">
-                                        <option value="editor">Biên tập viên (Editor)</option>
-                                        <option value="admin">Quản trị viên (Admin)</option>
-                                    </select>
-                                    <div className="flex gap-2">
-                                        <button type="submit" className="flex-1 bg-primary text-white py-2 rounded font-bold">{isEditingUser ? 'Cập nhật' : 'Thêm mới'}</button>
-                                        {isEditingUser && <button type="button" onClick={() => { setIsEditingUser(false); setUserForm({username:'', password:'', role: 'editor'}); }} className="px-4 py-2 bg-white/10 text-white rounded">Hủy</button>}
-                                    </div>
-                                </form>
-                            </div>
+                            <label className="text-xs text-slate-400 mb-1 block">Tên truyện</label>
+                            <input type="text" value={comicForm.title} onChange={e => setComicForm({...comicForm, title: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white focus:border-primary outline-none"/>
                         </div>
-                        <div className="space-y-3">
-                            {users.map(u => (
-                                <div key={u.id} className="bg-card p-4 rounded-xl border border-white/10 flex justify-between items-center">
-                                    <div>
-                                        <div className="font-bold text-white flex items-center gap-2">
-                                            {u.username} 
-                                            <span className={`text-[10px] px-2 py-0.5 rounded ${u.role==='admin' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}`}>{u.role}</span>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => { setUserForm({...u, password: ''}); setIsEditingUser(true); }} className="p-2 bg-white/5 rounded hover:bg-white/10"><Edit size={16}/></button>
-                                        <button onClick={async () => { if(u.username !== 'admin' && window.confirm('Xóa?')) { await DataProvider.deleteUser(u.id, AuthService.getToken()); refreshData(currentUserRole); } }} disabled={u.username === 'admin'} className="p-2 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20 disabled:opacity-50"><Trash2 size={16}/></button>
-                                    </div>
-                                </div>
+                        <div>
+                            <label className="text-xs text-slate-400 mb-1 block">Tác giả</label>
+                            <input type="text" value={comicForm.author} onChange={e => setComicForm({...comicForm, author: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white focus:border-primary outline-none"/>
+                        </div>
+                        <div>
+                             <label className="text-xs text-slate-400 mb-1 block">Ảnh bìa</label>
+                             <div className="flex gap-2">
+                                <input type="text" value={comicForm.coverImage} onChange={e => setComicForm({...comicForm, coverImage: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white focus:border-primary outline-none" placeholder="Nhập URL hoặc upload"/>
+                                <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded text-white flex items-center gap-2 text-sm font-medium transition-colors">
+                                    <input type="file" className="hidden" accept="image/*" ref={fileInputRef} onChange={(e) => handleFileUpload(e, 'comic')} />
+                                    {uploading && fileInputRef.current ? <RefreshCw size={16} className="animate-spin"/> : <Upload size={16}/>}
+                                    Upload
+                                </label>
+                             </div>
+                        </div>
+                         <div className="grid grid-cols-2 gap-2">
+                             <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Trạng thái</label>
+                                <select value={comicForm.status} onChange={e => setComicForm({...comicForm, status: e.target.value as any})} className="w-full bg-dark border border-white/10 rounded p-2 text-white">
+                                    <option value="Đang tiến hành">Đang tiến hành</option>
+                                    <option value="Hoàn thành">Hoàn thành</option>
+                                </select>
+                             </div>
+                             <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Views</label>
+                                <input type="number" value={comicForm.views} onChange={e => setComicForm({...comicForm, views: parseInt(e.target.value) || 0})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
+                             </div>
+                        </div>
+                    </div>
+                    
+                    <div className="mb-4">
+                        <label className="text-xs text-slate-400 mb-1 block">Thể loại</label>
+                        <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 bg-dark rounded border border-white/10">
+                            {genres.map(g => (
+                                <label key={g.id} className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer hover:text-white">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={comicForm.genres.includes(g.name)}
+                                        onChange={e => {
+                                            const newGenres = e.target.checked ? [...comicForm.genres, g.name] : comicForm.genres.filter(name => name !== g.name);
+                                            setComicForm({...comicForm, genres: newGenres});
+                                        }}
+                                        className="accent-primary"
+                                    />
+                                    {g.name}
+                                </label>
                             ))}
                         </div>
                     </div>
-                )}
 
-                {/* 6. SETTINGS VIEW (Updated with Menu Config) */}
-                {activeView === 'settings' && (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                         <div className="bg-card rounded-xl border border-white/10 p-8">
-                            <h2 className="text-2xl font-bold text-white mb-6">Cấu Hình Giao Diện</h2>
-                            <form onSubmit={async (e) => { e.preventDefault(); await DataProvider.saveTheme(themeForm, AuthService.getToken()); alert('Đã lưu cấu hình!'); window.location.reload(); }} className="space-y-6">
-                                <div className="space-y-4">
-                                    <h3 className="font-bold text-slate-400 border-b border-white/5 pb-2">Màu Sắc & Font</h3>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div><label className="text-xs block text-slate-500 mb-1">Màu chủ đạo (Primary)</label><div className="flex gap-2"><input type="color" value={themeForm.primaryColor} onChange={e => setThemeForm({...themeForm, primaryColor: e.target.value})} className="h-10 w-10 rounded cursor-pointer bg-transparent"/><input type="text" value={themeForm.primaryColor} onChange={e => setThemeForm({...themeForm, primaryColor: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded px-2 text-white"/></div></div>
-                                        <div><label className="text-xs block text-slate-500 mb-1">Màu phụ (Secondary)</label><div className="flex gap-2"><input type="color" value={themeForm.secondaryColor} onChange={e => setThemeForm({...themeForm, secondaryColor: e.target.value})} className="h-10 w-10 rounded cursor-pointer bg-transparent"/><input type="text" value={themeForm.secondaryColor} onChange={e => setThemeForm({...themeForm, secondaryColor: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded px-2 text-white"/></div></div>
-                                    </div>
-                                    <div><label className="text-xs block text-slate-500 mb-1">Font chữ</label><select value={themeForm.fontFamily} onChange={e => setThemeForm({...themeForm, fontFamily: e.target.value as any})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"><option value="sans">Không chân (Sans-serif)</option><option value="serif">Có chân (Serif)</option><option value="mono">Đơn không gian (Monospace)</option></select></div>
-                                </div>
-                                
-                                <div className="space-y-4">
-                                    <h3 className="font-bold text-slate-400 border-b border-white/5 pb-2">Bố cục Trang Chủ</h3>
-                                    <div className="flex flex-col gap-2">
-                                        <label className="flex items-center gap-2"><input type="checkbox" checked={themeForm.homeLayout?.showSlider} onChange={e => setThemeForm({...themeForm, homeLayout: {...themeForm.homeLayout, showSlider: e.target.checked}})}/> Hiển thị Slider</label>
-                                        <label className="flex items-center gap-2"><input type="checkbox" checked={themeForm.homeLayout?.showHot} onChange={e => setThemeForm({...themeForm, homeLayout: {...themeForm.homeLayout, showHot: e.target.checked}})}/> Hiển thị Truyện Hot</label>
-                                        <label className="flex items-center gap-2"><input type="checkbox" checked={themeForm.homeLayout?.showNew} onChange={e => setThemeForm({...themeForm, homeLayout: {...themeForm.homeLayout, showNew: e.target.checked}})}/> Hiển thị Mới Cập Nhật</label>
-                                    </div>
-                                </div>
+                    <div className="mb-4">
+                        <div className="flex justify-between items-center mb-1">
+                            <label className="text-xs text-slate-400">Mô tả</label>
+                            <button type="button" onClick={handleAutoSummarize} className="text-xs text-primary hover:underline flex items-center gap-1">✨ AI Tóm tắt</button>
+                        </div>
+                        <SimpleEditor value={comicForm.description} onChange={val => setComicForm({...comicForm, description: val})} height="150px"/>
+                    </div>
 
-                                <SimpleEditor value={themeForm.footerContent || ''} onChange={v => setThemeForm({...themeForm, footerContent: v})} label="Nội dung Footer (HTML)" height="150px" />
-                                
-                                <button type="submit" className="w-full bg-primary text-white py-3 rounded-lg font-bold shadow-lg">Lưu Cấu Hình</button>
-                            </form>
+                    {/* Action Buttons for Comic */}
+                    <div className="flex justify-end gap-3 border-b border-white/10 pb-6 mb-6">
+                        <button onClick={() => setIsEditing(false)} className="px-4 py-2 rounded-lg bg-white/5 text-slate-300">Hủy</button>
+                        <button onClick={handleSaveComic} className="px-4 py-2 rounded-lg bg-primary text-white font-bold flex items-center gap-2"><Save size={18} /> Lưu Truyện</button>
+                    </div>
+
+                    {/* CHAPTERS MANAGEMENT SECTION */}
+                    <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                <List size={18}/> Danh sách Chapter
+                                <button onClick={async (e) => {
+                                    e.preventDefault();
+                                    if(comicForm.id) {
+                                        const updated = await DataProvider.getComicById(comicForm.id);
+                                        if(updated) setComicForm(updated);
+                                    }
+                                }} className="ml-2 p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors" title="Làm mới">
+                                    <RefreshCw size={14}/>
+                                </button>
+                            </h3>
+                            <button onClick={handleAddChapter} disabled={!comicForm.id} className="text-sm bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white px-3 py-1.5 rounded flex items-center gap-2">
+                                <Plus size={16}/> Thêm Chapter
+                            </button>
                         </div>
                         
-                        <div className="space-y-6">
-                            {/* Menu Configuration */}
-                            <div className="bg-card rounded-xl border border-white/10 p-8">
-                                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                                    <MenuIcon size={20} className="text-blue-400"/> Cấu hình Menu Header
-                                </h3>
-                                
-                                <div className="space-y-3 mb-6">
-                                    {(!themeForm.headerMenu || themeForm.headerMenu.length === 0) && (
-                                        <p className="text-slate-500 italic text-sm">Chưa có menu nào.</p>
-                                    )}
-                                    {themeForm.headerMenu?.map((item, index) => (
-                                        <div key={index} className="flex items-center gap-2 p-3 bg-white/5 rounded-lg border border-white/10">
-                                            <div className="flex-1">
-                                                <div className="font-bold text-white text-sm">{item.label}</div>
-                                                <div className="text-xs text-slate-500">{item.url}</div>
-                                            </div>
-                                            <button 
-                                                type="button" 
-                                                onClick={() => handleDeleteMenuItem(index)}
-                                                className="p-2 text-red-400 hover:bg-red-500/10 rounded"
-                                            >
-                                                <Trash2 size={16}/>
-                                            </button>
-                                        </div>
+                        {!comicForm.id && (
+                            <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 rounded text-sm text-center">
+                                Vui lòng lưu truyện trước khi thêm chapter.
+                            </div>
+                        )}
+
+                        <div className="bg-dark border border-white/10 rounded overflow-hidden max-h-[400px] overflow-y-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-white/5 text-xs text-slate-400 uppercase sticky top-0 backdrop-blur-sm z-10">
+                                    <tr>
+                                        <th className="p-3">Tên Chapter</th>
+                                        <th className="p-3">Số</th>
+                                        <th className="p-3">Ngày đăng</th>
+                                        <th className="p-3 text-right">Thao tác</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-white/5">
+                                    {(comicForm.chapters || []).map(chap => (
+                                        <tr key={chap.id} className="hover:bg-white/5 text-slate-300">
+                                            <td className="p-3 font-medium text-white">{chap.title}</td>
+                                            <td className="p-3">{chap.number}</td>
+                                            <td className="p-3 text-xs">{new Date(chap.updatedAt).toLocaleDateString()}</td>
+                                            <td className="p-3 text-right">
+                                                <div className="flex justify-end gap-2">
+                                                    <button onClick={() => handleEditChapter(chap)} className="p-1.5 hover:bg-blue-500/20 text-blue-400 rounded"><Edit size={14}/></button>
+                                                    <button onClick={() => handleDeleteChapter(chap.id)} className="p-1.5 hover:bg-red-500/20 text-red-400 rounded"><Trash2 size={14}/></button>
+                                                </div>
+                                            </td>
+                                        </tr>
                                     ))}
-                                </div>
-
-                                <div className="bg-dark p-4 rounded-lg border border-white/10">
-                                    <h4 className="text-sm font-bold text-slate-300 mb-3">Thêm menu mới</h4>
-                                    <div className="space-y-3">
-                                        <input 
-                                            type="text" 
-                                            placeholder="Tên hiển thị (VD: Liên hệ)" 
-                                            className="w-full bg-card border border-white/10 rounded p-2 text-white text-sm"
-                                            value={newMenuItem.label}
-                                            onChange={e => setNewMenuItem({...newMenuItem, label: e.target.value})}
-                                        />
-                                        <div className="flex gap-2">
-                                            <input 
-                                                type="text" 
-                                                placeholder="Đường dẫn (VD: /p/lien-he)" 
-                                                className="flex-1 bg-card border border-white/10 rounded p-2 text-white text-sm"
-                                                value={newMenuItem.url}
-                                                onChange={e => setNewMenuItem({...newMenuItem, url: e.target.value})}
-                                            />
-                                            <button 
-                                                type="button" 
-                                                onClick={handleAddMenuItem}
-                                                className="bg-green-600 text-white px-3 py-2 rounded hover:bg-green-700"
-                                            >
-                                                <Plus size={18}/>
-                                            </button>
-                                        </div>
-                                        <p className="text-[10px] text-slate-500">
-                                            Gợi ý: Dùng <code>/p/slug</code> cho trang tĩnh, <code>/categories</code> cho thể loại.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* SEO Settings */}
-                            <div className="bg-card rounded-xl border border-white/10 p-8">
-                                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><Globe className="text-blue-400" size={20} /> SEO Trang Chủ</h3>
-                                <div className="space-y-4">
-                                    <div><label className="text-sm text-slate-400 block mb-1">Meta Title</label><input type="text" value={themeForm.homeMetaTitle || ''} onChange={e => setThemeForm({...themeForm, homeMetaTitle: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white text-sm"/></div>
-                                    <div><label className="text-sm text-slate-400 block mb-1">Meta Description</label><textarea value={themeForm.homeMetaDescription || ''} onChange={e => setThemeForm({...themeForm, homeMetaDescription: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white text-sm" rows={2}/></div>
-                                    <div><label className="text-sm text-slate-400 block mb-1">Meta Keywords</label><input type="text" value={themeForm.homeMetaKeywords || ''} onChange={e => setThemeForm({...themeForm, homeMetaKeywords: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white text-sm"/></div>
-                                </div>
-                            </div>
+                                    {(!comicForm.chapters || comicForm.chapters.length === 0) && (
+                                        <tr><td colSpan={4} className="p-8 text-center text-slate-500">Chưa có chapter nào.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
-                )}
+                </div>
+            ) : (
+                // Comic List Table
+                <div className="bg-card border border-white/10 rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-sm text-slate-300">
+                        <thead className="bg-white/5 text-xs uppercase text-slate-400">
+                            <tr><th className="p-3">Truyện</th><th className="p-3">Trạng thái</th><th className="p-3">Views</th><th className="p-3 text-right">Thao tác</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                            {comics.map(c => (
+                                <tr key={c.id} className="hover:bg-white/5">
+                                    <td className="p-3 font-medium text-white flex items-center gap-3">
+                                        <img src={c.coverImage} className="w-8 h-12 object-cover rounded" alt=""/>
+                                        <div>
+                                            <div className="line-clamp-1">{c.title}</div>
+                                            <div className="text-xs text-slate-500">{c.chapters?.length || 0} chương</div>
+                                        </div>
+                                    </td>
+                                    <td className="p-3">
+                                        <span className={`px-2 py-0.5 rounded text-xs ${c.status === 'Hoàn thành' ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                                            {c.status}
+                                        </span>
+                                    </td>
+                                    <td className="p-3">{c.views.toLocaleString()}</td>
+                                    <td className="p-3 text-right">
+                                        <div className="flex justify-end gap-2">
+                                            {/* Quick Add Chapter Button */}
+                                            <button onClick={() => handleQuickAddChapter(c.id)} className="p-1.5 hover:bg-green-500/20 text-green-400 rounded" title="Thêm Chapter Nhanh"><Plus size={16}/></button>
+                                            <button onClick={() => handleStartEdit(c.id)} className="p-1.5 hover:bg-blue-500/20 text-blue-400 rounded"><Edit size={16}/></button>
+                                            <button onClick={() => handleDeleteComic(c.id)} className="p-1.5 hover:bg-red-500/20 text-red-400 rounded"><Trash2 size={16}/></button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
 
-                {/* 7. COMIC EDITOR (Already present, keeping structure intact) */}
-                {(activeView === 'add-comic' || activeView === 'edit-comic') && (
-                    <div className="bg-card rounded-xl border border-white/10 p-6 max-w-4xl mx-auto">
-                        <h2 className="text-xl font-bold text-white mb-6">{editingComicId ? 'Sửa Truyện' : 'Thêm Truyện'}</h2>
-                        <form onSubmit={handleSubmitComic} className="space-y-4">
-                            {/* Improved Grid Layout */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* MODAL EDIT CHAPTER */}
+            {isEditingChapter && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="bg-card border border-white/10 w-full max-w-2xl rounded-xl shadow-2xl animate-in zoom-in-95 duration-200">
+                        <div className="flex justify-between items-center p-4 border-b border-white/10">
+                            <h3 className="text-lg font-bold text-white">
+                                {chapterForm.id ? 'Sửa Chapter' : 'Thêm Chapter Mới'}
+                            </h3>
+                            <button onClick={() => setIsEditingChapter(false)} className="text-slate-400 hover:text-white"><X size={20}/></button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="text-xs text-slate-400 mb-1 block">Tên truyện</label>
-                                    <input type="text" placeholder="Nhập tên truyện" required value={comicForm.title} onChange={handleTitleChange} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
+                                    <label className="text-xs text-slate-400 mb-1 block">Số thứ tự (Order)</label>
+                                    <input type="number" value={chapterForm.number} onChange={e => setChapterForm({...chapterForm, number: parseFloat(e.target.value)})} className="w-full bg-dark border border-white/10 rounded p-2 text-white focus:border-primary outline-none"/>
                                 </div>
-                                
-                                <div className="grid grid-cols-2 gap-4">
-                                     <div>
-                                        <label className="text-xs text-slate-400 mb-1 block">Tác giả</label>
-                                        <input type="text" placeholder="Tên tác giả" value={comicForm.author} onChange={e => setComicForm({...comicForm, author: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
-                                     </div>
-                                     <div>
-                                        <label className="text-xs text-slate-400 mb-1 block">Trạng thái</label>
-                                        <select 
-                                            value={comicForm.status} 
-                                            onChange={e => setComicForm({...comicForm, status: e.target.value as any})}
-                                            className="w-full bg-dark border border-white/10 rounded p-2 text-white appearance-none"
-                                        >
-                                            <option value="Đang tiến hành">Đang tiến hành</option>
-                                            <option value="Hoàn thành">Hoàn thành</option>
-                                        </select>
-                                     </div>
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                     <label className="text-xs text-slate-400 mb-1 block">Ảnh bìa</label>
-                                     <div className="flex gap-2">
-                                        <input type="text" placeholder="Link ảnh hoặc upload" value={comicForm.coverImage} onChange={e => setComicForm({...comicForm, coverImage: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white"/>
-                                        <button type="button" disabled={isUploading} onClick={() => coverInputRef.current?.click()} className="bg-white/10 px-4 rounded text-white hover:bg-white/20">{isUploading ? <Loader className="animate-spin" size={18}/> : <Upload size={18}/>}</button>
-                                        <input type="file" ref={coverInputRef} className="hidden" onChange={handleUploadCover} accept="image/*" />
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-4 mt-6">
-                                    <label className="flex items-center gap-2 cursor-pointer bg-white/5 px-4 py-2 rounded hover:bg-white/10">
-                                        <input type="checkbox" checked={comicForm.isRecommended} onChange={e => setComicForm({...comicForm, isRecommended: e.target.checked})} className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"/>
-                                        <span className="text-sm font-medium text-white">Đề xuất (Hot)</span>
-                                    </label>
+                                    <label className="text-xs text-slate-400 mb-1 block">Tên hiển thị</label>
+                                    <input type="text" value={chapterForm.title} onChange={e => setChapterForm({...chapterForm, title: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white focus:border-primary outline-none"/>
                                 </div>
                             </div>
                             
                             <div>
-                                <label className="text-xs text-slate-400 mb-1 block">Thể loại</label>
-                                <div className="flex flex-wrap gap-2 p-3 bg-dark rounded border border-white/10 min-h-[50px]">
-                                    {Array.isArray(genres) && genres.map(g => (
-                                        <label key={g.id} className={`flex items-center gap-1 cursor-pointer px-3 py-1 rounded-full text-xs border transition-colors ${comicForm.genres?.includes(g.name) ? 'bg-primary/20 border-primary text-primary' : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'}`}>
-                                            <input type="checkbox" className="hidden" checked={comicForm.genres?.includes(g.name)} onChange={() => { const newG = comicForm.genres?.includes(g.name) ? comicForm.genres.filter(x=>x!==g.name) : [...(comicForm.genres||[]), g.name]; setComicForm({...comicForm, genres: newG}); }} />
-                                            {comicForm.genres?.includes(g.name) && <CheckSquare size={12}/>}
-                                            <span>{g.name}</span>
-                                        </label>
-                                    ))}
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="text-xs text-slate-400">Danh sách ảnh (Mỗi dòng 1 link)</label>
+                                    <label className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded cursor-pointer flex items-center gap-1 transition-colors">
+                                        <input 
+                                            type="file" 
+                                            multiple 
+                                            accept="image/*" 
+                                            className="hidden" 
+                                            ref={chapterInputRef}
+                                            onChange={handleChapterImagesUpload}
+                                        />
+                                        {uploading && chapterInputRef.current ? <RefreshCw size={12} className="animate-spin"/> : <Upload size={12}/>}
+                                        Upload Nhiều Ảnh
+                                    </label>
                                 </div>
+                                <textarea 
+                                    value={chapterForm.pagesContent} 
+                                    onChange={e => setChapterForm({...chapterForm, pagesContent: e.target.value})}
+                                    className="w-full h-64 bg-dark border border-white/10 rounded p-2 text-white text-xs font-mono focus:border-primary outline-none whitespace-pre"
+                                    placeholder="https://example.com/page1.jpg&#10;https://example.com/page2.jpg"
+                                ></textarea>
+                                <p className="text-[10px] text-slate-500 mt-1">
+                                    * Mẹo: Bạn có thể copy link ảnh từ nơi khác và paste vào đây.
+                                </p>
                             </div>
 
-                            <SimpleEditor value={comicForm.description || ''} onChange={v => setComicForm({...comicForm, description: v})} label="Mô tả" />
-                            {renderSEOFields(comicForm, setComicForm)}
-                            <div className="flex justify-end gap-2 pt-4 border-t border-white/10">
-                                <button type="button" onClick={() => setActiveView('list')} className="px-6 py-2 text-slate-400 hover:text-white transition-colors">Hủy</button>
-                                <button type="submit" disabled={isSaving} className="bg-primary hover:bg-primary/90 text-white px-8 py-2 rounded font-bold shadow-lg shadow-primary/20 flex items-center gap-2">
-                                    <Save size={18}/> Lưu Truyện
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button onClick={() => setIsEditingChapter(false)} className="px-4 py-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10">Hủy bỏ</button>
+                                <button onClick={handleSaveChapter} disabled={uploading} className="px-4 py-2 rounded-lg bg-primary text-white font-bold flex items-center gap-2 hover:bg-primary/90 disabled:opacity-50">
+                                    {uploading ? 'Đang tải lên...' : <><Save size={18}/> Lưu Chapter</>}
                                 </button>
                             </div>
-                        </form>
+                        </div>
                     </div>
-                )}
-                
-                {/* 8. CHAPTER MANAGER & EDITOR (Keeping existing structure) */}
-                {activeView === 'manage-chapters' && currentComic && (
-                    <div className="bg-card rounded-xl border border-white/10 p-6">
-                         <div className="flex justify-between mb-4"><h2 className="text-xl font-bold text-white">Quản lý Chapter: {currentComic.title}</h2><div><button onClick={() => { setChapterForm({ title: `Chapter ${(currentComic.chapters?.length||0)+1}`, number: (currentComic.chapters?.length||0)+1 }); setChapterPages([]); setEditingChapterId(null); setActiveView('edit-chapter'); }} className="bg-green-600 text-white px-4 py-2 rounded mr-2">Thêm Mới</button><button onClick={() => setActiveView('list')} className="bg-white/10 text-white px-4 py-2 rounded">Quay lại</button></div></div>
-                         <table className="w-full text-left text-slate-300">
-                             <thead><tr><th className="p-2">Tên</th><th className="p-2">Ngày</th><th className="p-2 text-right">Hành động</th></tr></thead>
-                             <tbody>
-                                 {currentComic.chapters?.map(c => (
-                                     <tr key={c.id} className="hover:bg-white/5">
-                                         <td className="p-2">{c.title}</td><td className="p-2 text-xs">{new Date(c.updatedAt).toLocaleDateString()}</td>
-                                         <td className="p-2 text-right">
-                                             <button onClick={async () => { setEditingChapterId(c.id); setChapterForm({title: c.title, number: c.number}); setChapterPages(await DataProvider.getChapterPages(c.id)); setActiveView('edit-chapter'); }} className="text-blue-400 mr-2"><Edit size={16}/></button>
-                                             <button onClick={async () => { if(window.confirm('Xóa?')) { await DataProvider.deleteChapter(c.id, AuthService.getToken()); setCurrentComic(await DataProvider.getComicById(currentComic.id) || null); } }} className="text-red-400"><Trash2 size={16}/></button>
-                                         </td>
-                                     </tr>
-                                 ))}
-                             </tbody>
-                         </table>
-                    </div>
-                )}
-
-                {activeView === 'edit-chapter' && currentComic && (
-                    <div className="bg-card rounded-xl border border-white/10 p-6">
-                        <h2 className="text-xl font-bold text-white mb-6">Editor Chapter</h2>
-                        <form onSubmit={async (e) => { e.preventDefault(); setIsSaving(true); await DataProvider.saveChapter({ id: editingChapterId || `${currentComic.id}-ch-${Date.now()}`, comicId: currentComic.id, title: chapterForm.title, number: chapterForm.number, updatedAt: new Date().toISOString() }, chapterPages, AuthService.getToken()); setIsSaving(false); setCurrentComic(await DataProvider.getComicById(currentComic.id) || null); setActiveView('manage-chapters'); }} className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4"><input type="text" required value={chapterForm.title} onChange={e => setChapterForm({...chapterForm, title: e.target.value})} className="bg-dark border border-white/10 rounded p-2 text-white"/><input type="number" required value={chapterForm.number} onChange={e => setChapterForm({...chapterForm, number: parseFloat(e.target.value)})} className="bg-dark border border-white/10 rounded p-2 text-white"/></div>
-                            <div className="border-t border-white/10 pt-4">
-                                <div className="flex gap-4 mb-4"><button type="button" disabled={isUploading} onClick={() => pagesInputRef.current?.click()} className="bg-primary text-white px-4 py-2 rounded">{isUploading ? 'Đang tải...' : 'Upload Ảnh'}</button><input type="file" ref={pagesInputRef} multiple accept="image/*" className="hidden" onChange={async (e) => { if(e.target.files) { setIsUploading(true); const newP = []; for(let i=0; i<e.target.files.length; i++) { try { const url = await DataProvider.uploadImage(e.target.files[i]); newP.push({ imageUrl: url, pageNumber: chapterPages.length + i + 1 }); } catch(err){} } setChapterPages([...chapterPages, ...newP]); setIsUploading(false); } }} /></div>
-                                <div className="grid grid-cols-6 gap-2">{chapterPages.map((p, i) => (<div key={i} className="relative group"><img src={p.imageUrl} className="w-full h-32 object-cover rounded"/><button type="button" onClick={() => setChapterPages(chapterPages.filter((_, idx) => idx !== i))} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100"><X size={12}/></button></div>))}</div>
-                            </div>
-                            <div className="flex justify-end gap-2"><button type="button" onClick={() => setActiveView('manage-chapters')} className="px-4 py-2 text-slate-400">Hủy</button><button type="submit" disabled={isSaving} className="bg-primary text-white px-6 py-2 rounded font-bold">Lưu</button></div>
-                        </form>
-                    </div>
-                )}
-            </>
+                </div>
             )}
         </div>
-    </div>
-  );
+    );
+
+    const renderGenresTab = () => (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-1 space-y-4">
+                <div className="bg-card border border-white/10 p-5 rounded-xl">
+                    <h3 className="font-bold text-white mb-4">{genreForm.id ? 'Sửa thể loại' : 'Thêm thể loại'}</h3>
+                    <div className="space-y-3">
+                        <input type="text" placeholder="Tên thể loại" value={genreForm.name} onChange={e => setGenreForm({...genreForm, name: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
+                        <input type="text" placeholder="Slug (Tùy chọn)" value={genreForm.slug} onChange={e => setGenreForm({...genreForm, slug: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
+                        <label className="flex items-center gap-2 text-sm text-slate-300">
+                            <input type="checkbox" checked={genreForm.isShowHome} onChange={e => setGenreForm({...genreForm, isShowHome: e.target.checked})} className="accent-primary"/>
+                            Hiển thị ngoài trang chủ
+                        </label>
+                        <div className="flex gap-2">
+                             <button onClick={handleSaveGenre} className="flex-1 bg-primary hover:bg-primary/90 text-white py-2 rounded font-medium">Lưu</button>
+                             {genreForm.id && <button onClick={() => setGenreForm({id:'', name:'', slug:'', isShowHome:false})} className="px-3 bg-white/10 hover:bg-white/20 text-white rounded">Hủy</button>}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div className="md:col-span-2">
+                <div className="bg-card border border-white/10 rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-sm text-slate-300">
+                        <thead className="bg-white/5 text-xs uppercase text-slate-400">
+                            <tr><th className="p-3">Tên</th><th className="p-3">Slug</th><th className="p-3">Trang chủ</th><th className="p-3 text-right">Thao tác</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                            {genres.map(g => (
+                                <tr key={g.id} className="hover:bg-white/5">
+                                    <td className="p-3 font-medium text-white">{g.name}</td>
+                                    <td className="p-3 text-slate-500">{g.slug}</td>
+                                    <td className="p-3">{g.isShowHome ? <Check size={16} className="text-green-500"/> : <X size={16} className="text-slate-600"/>}</td>
+                                    <td className="p-3 text-right">
+                                        <div className="flex justify-end gap-2">
+                                            <button onClick={() => setGenreForm(g)} className="p-1.5 hover:bg-blue-500/20 text-blue-400 rounded"><Edit size={16}/></button>
+                                            <button onClick={() => handleDeleteGenre(g.id)} className="p-1.5 hover:bg-red-500/20 text-red-400 rounded"><Trash2 size={16}/></button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderAdsTab = () => (
+         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-1">
+                 <div className="bg-card border border-white/10 p-5 rounded-xl sticky top-4">
+                    <h3 className="font-bold text-white mb-4">{adForm.id ? 'Sửa quảng cáo' : 'Thêm quảng cáo'}</h3>
+                    <div className="space-y-3">
+                        <input type="text" placeholder="Tiêu đề (Ghi nhớ)" value={adForm.title || ''} onChange={e => setAdForm({...adForm, title: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
+                        <select value={adForm.position} onChange={e => setAdForm({...adForm, position: e.target.value as any})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary">
+                            <option value="home_header">Home Header (Trên cùng)</option>
+                            <option value="home_middle">Home Middle (Giữa danh sách)</option>
+                            <option value="home_bottom">Home Bottom (Cuối trang)</option>
+                            <option value="detail_sidebar">Detail Sidebar (Cột phải)</option>
+                            <option value="reader_top">Reader Top (Trên truyện)</option>
+                            <option value="reader_middle">Reader Middle (Giữa chapter)</option>
+                            <option value="reader_bottom">Reader Bottom (Dưới truyện)</option>
+                            <option value="reader_float_left">Reader Float Left (Trôi trái PC)</option>
+                            <option value="reader_float_right">Reader Float Right (Trôi phải PC)</option>
+                        </select>
+                         <div className="flex gap-2">
+                            <input type="text" value={adForm.imageUrl} onChange={e => setAdForm({...adForm, imageUrl: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white focus:border-primary outline-none" placeholder="Link ảnh hoặc upload"/>
+                            <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 p-2 rounded text-white flex items-center justify-center transition-colors" title="Upload Ảnh">
+                                <input type="file" className="hidden" accept="image/*" ref={fileInputRef} onChange={(e) => handleFileUpload(e, 'ad')} />
+                                {uploading && fileInputRef.current ? <RefreshCw size={18} className="animate-spin"/> : <Upload size={18}/>}
+                            </label>
+                        </div>
+                        <input type="text" placeholder="Link đích (Khi click)" value={adForm.linkUrl} onChange={e => setAdForm({...adForm, linkUrl: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
+                        <label className="flex items-center gap-2 text-sm text-slate-300">
+                            <input type="checkbox" checked={adForm.isActive} onChange={e => setAdForm({...adForm, isActive: e.target.checked})} className="accent-primary"/>
+                            Đang hoạt động
+                        </label>
+                        <div className="flex gap-2">
+                             <button onClick={handleSaveAd} className="flex-1 bg-primary hover:bg-primary/90 text-white py-2 rounded font-medium">Lưu Quảng Cáo</button>
+                             {adForm.id && <button onClick={() => setAdForm({id: '', position: 'home_middle', imageUrl: '', linkUrl: '', isActive: true, title: ''})} className="px-3 bg-white/10 hover:bg-white/20 text-white rounded">Hủy</button>}
+                        </div>
+                    </div>
+                 </div>
+            </div>
+            <div className="lg:col-span-2">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     {ads.map(ad => (
+                         <div key={ad.id} className="bg-card border border-white/10 rounded-lg p-3 flex gap-3 group">
+                             <img src={ad.imageUrl} alt="" className="w-20 h-20 object-cover rounded bg-dark"/>
+                             <div className="flex-1 min-w-0">
+                                 <h4 className="font-bold text-white text-sm truncate">{ad.title || 'Quảng cáo'}</h4>
+                                 <p className="text-xs text-slate-500 mb-1">{ad.position}</p>
+                                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${ad.isActive ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                     {ad.isActive ? 'Active' : 'Inactive'}
+                                 </span>
+                             </div>
+                             <div className="flex flex-col gap-2">
+                                 <button onClick={() => setAdForm(ad)} className="p-1.5 hover:bg-blue-500/20 text-blue-400 rounded"><Edit size={14}/></button>
+                                 <button onClick={() => handleDeleteAd(ad.id)} className="p-1.5 hover:bg-red-500/20 text-red-400 rounded"><Trash2 size={14}/></button>
+                             </div>
+                         </div>
+                     ))}
+                 </div>
+            </div>
+         </div>
+    );
+
+    const renderStaticTab = () => (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+             <div className="md:col-span-1">
+                 <div className="bg-card border border-white/10 p-5 rounded-xl sticky top-4">
+                    <h3 className="font-bold text-white mb-4">{staticForm.slug && staticForm.slug !== '' ? 'Sửa trang tĩnh' : 'Thêm trang tĩnh'}</h3>
+                    <div className="space-y-3">
+                        <input type="text" placeholder="Tiêu đề trang" value={staticForm.title} onChange={e => setStaticForm({...staticForm, title: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
+                        <input type="text" placeholder="Slug (URL)" value={staticForm.slug} onChange={e => setStaticForm({...staticForm, slug: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
+                        <div className="space-y-1">
+                             <label className="text-xs text-slate-400">Nội dung</label>
+                             <SimpleEditor value={staticForm.content} onChange={val => setStaticForm({...staticForm, content: val})} height="300px"/>
+                        </div>
+                        <div className="flex gap-2">
+                             <button onClick={handleSaveStatic} className="flex-1 bg-primary hover:bg-primary/90 text-white py-2 rounded font-medium">Lưu Trang</button>
+                             {staticForm.slug && <button onClick={() => setStaticForm({slug: '', title: '', content: ''})} className="px-3 bg-white/10 hover:bg-white/20 text-white rounded">Hủy</button>}
+                        </div>
+                    </div>
+                 </div>
+             </div>
+             <div className="md:col-span-2">
+                 <div className="bg-card border border-white/10 rounded-xl overflow-hidden">
+                    <div className="p-4 bg-white/5 border-b border-white/10 flex justify-between items-center">
+                        <span className="text-sm font-bold text-slate-300">Danh sách trang</span>
+                        {staticPages.length === 0 && (
+                            <button onClick={handleSeedStaticPages} className="text-xs flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded transition-colors">
+                                <Database size={12}/> Khởi tạo trang mẫu
+                            </button>
+                        )}
+                    </div>
+                    {staticPages.length === 0 ? (
+                        <div className="p-10 text-center text-slate-500">
+                            Chưa có trang tĩnh nào. <br/>
+                            Hãy nhấn <b>"Khởi tạo trang mẫu"</b> ở trên để tạo các trang cơ bản.
+                        </div>
+                    ) : (
+                        <table className="w-full text-left text-sm text-slate-300">
+                            <thead className="bg-white/5 text-xs uppercase text-slate-400">
+                                <tr><th className="p-3">Tiêu đề</th><th className="p-3">URL (Slug)</th><th className="p-3 text-right">Thao tác</th></tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/5">
+                                {staticPages.map(p => (
+                                    <tr key={p.slug} className="hover:bg-white/5">
+                                        <td className="p-3 font-medium text-white">{p.title}</td>
+                                        <td className="p-3 text-slate-500">/p/{p.slug}</td>
+                                        <td className="p-3 text-right">
+                                            <button onClick={() => setStaticForm(p)} className="p-1.5 hover:bg-blue-500/20 text-blue-400 rounded"><Edit size={16}/></button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+             </div>
+        </div>
+    );
+
+    const renderUsersTab = () => (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-1">
+                 <div className="bg-card border border-white/10 p-5 rounded-xl">
+                    <h3 className="font-bold text-white mb-4">{userForm.id ? 'Sửa thành viên' : 'Thêm thành viên'}</h3>
+                    <div className="space-y-3">
+                        <input type="text" placeholder="Tên đăng nhập" value={userForm.username} onChange={e => setUserForm({...userForm, username: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
+                        <input type="password" placeholder={userForm.id ? "Mật khẩu (Để trống nếu không đổi)" : "Mật khẩu"} value={userForm.password} onChange={e => setUserForm({...userForm, password: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
+                        <select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value as any})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary">
+                            <option value="editor">Biên tập viên (Editor)</option>
+                            <option value="admin">Quản trị viên (Admin)</option>
+                        </select>
+                        <div className="flex gap-2">
+                             <button onClick={handleSaveUser} className="flex-1 bg-primary hover:bg-primary/90 text-white py-2 rounded font-medium">Lưu</button>
+                             {userForm.id !== 0 && <button onClick={() => setUserForm({id: 0, username: '', password: '', role: 'editor'})} className="px-3 bg-white/10 hover:bg-white/20 text-white rounded">Hủy</button>}
+                        </div>
+                    </div>
+                 </div>
+            </div>
+            <div className="md:col-span-2">
+                <div className="bg-card border border-white/10 rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-sm text-slate-300">
+                        <thead className="bg-white/5 text-xs uppercase text-slate-400">
+                            <tr><th className="p-3">User</th><th className="p-3">Role</th><th className="p-3 text-right">Thao tác</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                            {users.map(u => (
+                                <tr key={u.id} className="hover:bg-white/5">
+                                    <td className="p-3 font-medium text-white">{u.username}</td>
+                                    <td className="p-3">
+                                        <span className={`px-2 py-0.5 rounded text-xs ${u.role === 'admin' ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-500/20 text-slate-400'}`}>
+                                            {u.role}
+                                        </span>
+                                    </td>
+                                    <td className="p-3 text-right">
+                                        <div className="flex justify-end gap-2">
+                                            <button onClick={() => setUserForm(u)} className="p-1.5 hover:bg-blue-500/20 text-blue-400 rounded"><Edit size={16}/></button>
+                                            {u.username !== 'admin' && (
+                                                <button onClick={() => handleDeleteUser(u.id)} className="p-1.5 hover:bg-red-500/20 text-red-400 rounded"><Trash2 size={16}/></button>
+                                            )}
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderSettingsTab = () => (
+        <div className="max-w-4xl mx-auto space-y-6">
+            <div className="bg-card border border-white/10 p-6 rounded-xl">
+                <h3 className="font-bold text-white mb-6 flex items-center gap-2"><Settings size={20}/> Cấu hình giao diện</h3>
+                
+                <div className="space-y-6">
+                    {/* Basic Colors */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs text-slate-400 mb-1 block">Màu chủ đạo (Primary)</label>
+                            <div className="flex gap-2">
+                                <input type="color" value={themeConfig.primaryColor} onChange={e => setThemeConfig({...themeConfig, primaryColor: e.target.value})} className="h-10 w-12 bg-transparent border-0 cursor-pointer"/>
+                                <input type="text" value={themeConfig.primaryColor} onChange={e => setThemeConfig({...themeConfig, primaryColor: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white text-sm"/>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs text-slate-400 mb-1 block">Màu phụ (Secondary)</label>
+                            <div className="flex gap-2">
+                                <input type="color" value={themeConfig.secondaryColor} onChange={e => setThemeConfig({...themeConfig, secondaryColor: e.target.value})} className="h-10 w-12 bg-transparent border-0 cursor-pointer"/>
+                                <input type="text" value={themeConfig.secondaryColor} onChange={e => setThemeConfig({...themeConfig, secondaryColor: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white text-sm"/>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {/* Site Info */}
+                    <div>
+                        <label className="text-xs text-slate-400 mb-1 block">Tên Website</label>
+                        <input type="text" value={themeConfig.siteName || ''} onChange={e => setThemeConfig({...themeConfig, siteName: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
+                    </div>
+
+                     <div>
+                        <label className="text-xs text-slate-400 mb-1 block">Font chữ</label>
+                        <select value={themeConfig.fontFamily} onChange={e => setThemeConfig({...themeConfig, fontFamily: e.target.value as any})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary">
+                            <option value="sans">Sans-serif (Hiện đại)</option>
+                            <option value="serif">Serif (Cổ điển)</option>
+                            <option value="mono">Monospace (Code)</option>
+                        </select>
+                    </div>
+
+                    {/* Home Layout */}
+                    <div className="border-t border-white/10 pt-4">
+                        <label className="text-sm font-bold text-white mb-2 block">Bố cục trang chủ</label>
+                        <div className="space-y-2">
+                            <label className="flex items-center gap-2 text-slate-300">
+                                <input type="checkbox" checked={themeConfig.homeLayout.showSlider} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...themeConfig.homeLayout, showSlider: e.target.checked}})} className="accent-primary"/>
+                                Hiển thị Slider nổi bật
+                            </label>
+                            <label className="flex items-center gap-2 text-slate-300">
+                                <input type="checkbox" checked={themeConfig.homeLayout.showHot} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...themeConfig.homeLayout, showHot: e.target.checked}})} className="accent-primary"/>
+                                Hiển thị Truyện Hot
+                            </label>
+                            <label className="flex items-center gap-2 text-slate-300">
+                                <input type="checkbox" checked={themeConfig.homeLayout.showNew} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...themeConfig.homeLayout, showNew: e.target.checked}})} className="accent-primary"/>
+                                Hiển thị Truyện Mới
+                            </label>
+                        </div>
+                    </div>
+
+                    {/* Header Menu Configuration */}
+                    <div className="border-t border-white/10 pt-4">
+                         <div className="flex justify-between items-center mb-2">
+                             <label className="text-sm font-bold text-white flex items-center gap-2"><Menu size={16}/> Menu Header</label>
+                             <button onClick={addMenuItem} className="text-xs flex items-center gap-1 bg-white/10 hover:bg-white/20 text-white px-2 py-1 rounded"><Plus size={12}/> Thêm menu</button>
+                         </div>
+                         <div className="space-y-2">
+                             {(themeConfig.headerMenu || []).map((item, idx) => (
+                                 <div key={idx} className="flex gap-2 items-center">
+                                     <input 
+                                        type="text" 
+                                        placeholder="Tên Menu"
+                                        value={item.label}
+                                        onChange={(e) => updateMenuItem(idx, 'label', e.target.value)}
+                                        className="flex-1 bg-dark border border-white/10 rounded p-2 text-white text-sm focus:border-primary outline-none"
+                                     />
+                                     <input 
+                                        type="text" 
+                                        placeholder="Link (VD: /p/lien-he)"
+                                        value={item.url}
+                                        onChange={(e) => updateMenuItem(idx, 'url', e.target.value)}
+                                        className="flex-1 bg-dark border border-white/10 rounded p-2 text-white text-sm focus:border-primary outline-none"
+                                     />
+                                     <button onClick={() => removeMenuItem(idx)} className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded"><Trash2 size={16}/></button>
+                                 </div>
+                             ))}
+                             {(themeConfig.headerMenu || []).length === 0 && <div className="text-slate-500 text-sm italic">Chưa có menu nào.</div>}
+                         </div>
+                    </div>
+
+                    {/* Footer Menu Configuration */}
+                    <div className="border-t border-white/10 pt-4">
+                         <div className="flex justify-between items-center mb-2">
+                             <label className="text-sm font-bold text-white flex items-center gap-2"><LinkIcon size={16}/> Menu Footer (Liên kết chân trang)</label>
+                             <button onClick={addFooterMenuItem} className="text-xs flex items-center gap-1 bg-white/10 hover:bg-white/20 text-white px-2 py-1 rounded"><Plus size={12}/> Thêm link</button>
+                         </div>
+                         <div className="space-y-2">
+                             {(themeConfig.footerMenu || []).map((item, idx) => (
+                                 <div key={idx} className="flex gap-2 items-center">
+                                     <input 
+                                        type="text" 
+                                        placeholder="Tên Link"
+                                        value={item.label}
+                                        onChange={(e) => updateFooterMenuItem(idx, 'label', e.target.value)}
+                                        className="flex-1 bg-dark border border-white/10 rounded p-2 text-white text-sm focus:border-primary outline-none"
+                                     />
+                                     <input 
+                                        type="text" 
+                                        placeholder="URL (VD: /p/dieu-khoan)"
+                                        value={item.url}
+                                        onChange={(e) => updateFooterMenuItem(idx, 'url', e.target.value)}
+                                        className="flex-1 bg-dark border border-white/10 rounded p-2 text-white text-sm focus:border-primary outline-none"
+                                     />
+                                     <button onClick={() => removeFooterMenuItem(idx)} className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded"><Trash2 size={16}/></button>
+                                 </div>
+                             ))}
+                             {(themeConfig.footerMenu || []).length === 0 && <div className="text-slate-500 text-sm italic">Chưa có liên kết nào.</div>}
+                         </div>
+                    </div>
+
+                    {/* Footer Content */}
+                    <div className="border-t border-white/10 pt-4">
+                        <label className="text-sm font-bold text-white mb-2 flex items-center gap-2"><LinkIcon size={16}/> Nội dung Footer (Chân trang)</label>
+                        <SimpleEditor 
+                            value={themeConfig.footerContent || ''} 
+                            onChange={val => setThemeConfig({...themeConfig, footerContent: val})}
+                            height="150px"
+                        />
+                        <p className="text-xs text-slate-500 mt-1">Hỗ trợ HTML. Bạn có thể chèn thông tin liên hệ, bản quyền tại đây.</p>
+                    </div>
+
+                    <button onClick={handleSaveTheme} className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 rounded-xl mt-4 flex items-center justify-center gap-2">
+                        <Save size={20}/> Lưu Cấu Hình
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderReportsTab = () => (
+        <div className="bg-card border border-white/10 rounded-xl overflow-hidden">
+             <div className="p-4 border-b border-white/10 bg-white/5 flex justify-between items-center">
+                 <h3 className="font-bold text-white">Danh sách báo lỗi từ người dùng</h3>
+                 <button onClick={loadData} className="p-2 hover:bg-white/10 rounded-full text-slate-300"><RefreshCw size={16}/></button>
+             </div>
+             {reports.length === 0 ? (
+                 <div className="p-8 text-center text-slate-500">Không có báo cáo nào.</div>
+             ) : (
+                <table className="w-full text-left text-sm text-slate-300">
+                    <thead className="bg-white/5 text-xs uppercase text-slate-400">
+                        <tr><th className="p-3">Truyện / Chương</th><th className="p-3">Nội dung lỗi</th><th className="p-3">Thời gian</th><th className="p-3 text-right">Xử lý</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                        {reports.map(r => (
+                            <tr key={r.id} className="hover:bg-white/5">
+                                <td className="p-3">
+                                    <div className="font-bold text-white">{r.comicTitle || r.comicId}</div>
+                                    <div className="text-xs text-primary">{r.chapterTitle || r.chapterId}</div>
+                                </td>
+                                <td className="p-3 text-red-300">{r.message}</td>
+                                <td className="p-3 text-xs text-slate-500">{new Date(r.created_at).toLocaleString()}</td>
+                                <td className="p-3 text-right">
+                                    <button onClick={() => handleDeleteReport(r.id)} className="p-1.5 hover:bg-red-500/20 text-red-400 rounded" title="Đã sửa xong / Xóa"><Trash2 size={16}/></button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+             )}
+        </div>
+    );
+
+    const renderMediaTab = () => (
+        <div className="space-y-6">
+            {/* Header / Upload Area */}
+            <div className="bg-card border border-white/10 p-6 rounded-xl flex flex-col md:flex-row justify-between items-center gap-4">
+                <div>
+                    <h2 className="text-xl font-bold text-white flex items-center gap-2 mb-1">
+                        <FolderOpen className="text-primary"/> Thư viện ảnh
+                    </h2>
+                    <p className="text-sm text-slate-400">Quản lý tất cả file ảnh đã tải lên.</p>
+                </div>
+                <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-white font-medium flex items-center gap-2 transition-colors shadow-lg shadow-blue-500/20">
+                    <input 
+                        type="file" 
+                        multiple 
+                        accept="image/*" 
+                        className="hidden" 
+                        ref={mediaInputRef}
+                        onChange={handleMediaUpload}
+                    />
+                    {uploading && mediaInputRef.current ? <RefreshCw size={18} className="animate-spin"/> : <Upload size={18}/>}
+                    <span>Tải ảnh mới</span>
+                </label>
+            </div>
+
+            {/* Media Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                {mediaFiles.map((file, idx) => (
+                    <div key={idx} className="group relative bg-card border border-white/10 rounded-lg overflow-hidden hover:border-primary/50 transition-colors">
+                        <div className="aspect-square bg-dark relative">
+                            <img 
+                                src={file.url} 
+                                alt={file.name} 
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                            />
+                            {/* Overlay Actions */}
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                <button 
+                                    onClick={() => copyToClipboard(file.url)}
+                                    className="p-2 bg-white text-black rounded-full hover:bg-primary hover:text-white transition-colors"
+                                    title="Copy Link"
+                                >
+                                    <Copy size={16}/>
+                                </button>
+                                <button 
+                                    onClick={() => handleDeleteMedia(file.name)}
+                                    className="p-2 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors"
+                                    title="Xóa ảnh"
+                                >
+                                    <Trash2 size={16}/>
+                                </button>
+                            </div>
+                        </div>
+                        <div className="p-2">
+                            <div className="text-xs text-white font-medium truncate mb-1" title={file.name}>{file.name}</div>
+                            <div className="flex justify-between items-center text-[10px] text-slate-500">
+                                <span>{formatFileSize(file.size)}</span>
+                                <span>{new Date(file.created).toLocaleDateString()}</span>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+            
+            {mediaFiles.length === 0 && (
+                <div className="p-12 text-center text-slate-500 border border-white/10 border-dashed rounded-xl">
+                    Chưa có file ảnh nào. Hãy upload ảnh mới.
+                </div>
+            )}
+        </div>
+    );
+
+    return (
+        <div className="flex min-h-screen bg-darker">
+            {/* Sidebar */}
+            <aside className="w-64 bg-card border-r border-white/10 hidden md:block flex-shrink-0">
+                <div className="p-6">
+                    <h1 className="text-xl font-bold text-white flex items-center gap-2">
+                        <LayoutDashboard className="text-primary"/> Admin CP
+                    </h1>
+                </div>
+                <nav className="flex flex-col gap-1 px-3">
+                    <button onClick={() => setActiveTab('comics')} className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'comics' ? 'bg-primary text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                        <Book size={18} /> Quản lý Truyện
+                    </button>
+                    <button onClick={() => setActiveTab('genres')} className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'genres' ? 'bg-primary text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                        <FileText size={18} /> Thể loại
+                    </button>
+                    <button onClick={() => setActiveTab('media')} className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'media' ? 'bg-primary text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                        <ImageIcon size={18} /> Thư viện ảnh
+                    </button>
+                    <button onClick={() => setActiveTab('ads')} className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'ads' ? 'bg-primary text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                        <Globe size={18} /> Quảng cáo
+                    </button>
+                    <button onClick={() => setActiveTab('static')} className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'static' ? 'bg-primary text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                        <Database size={18} /> Trang tĩnh
+                    </button>
+                    <button onClick={() => setActiveTab('reports')} className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'reports' ? 'bg-primary text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                        <AlertTriangle size={18} /> Báo cáo lỗi
+                    </button>
+                    <button onClick={() => setActiveTab('users')} className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'users' ? 'bg-primary text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                        <Users size={18} /> Thành viên
+                    </button>
+                    <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'settings' ? 'bg-primary text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                        <Settings size={18} /> Cài đặt giao diện
+                    </button>
+                </nav>
+            </aside>
+
+            {/* Main Content */}
+            <main className="flex-1 p-6 md:p-8 overflow-y-auto h-screen">
+                {loading && <div className="mb-4 text-primary text-sm animate-pulse">Đang đồng bộ dữ liệu...</div>}
+                
+                {activeTab === 'comics' && renderComicsTab()}
+                {activeTab === 'genres' && renderGenresTab()}
+                {activeTab === 'media' && renderMediaTab()}
+                {activeTab === 'ads' && renderAdsTab()}
+                {activeTab === 'users' && renderUsersTab()}
+                {activeTab === 'settings' && renderSettingsTab()}
+                {activeTab === 'reports' && renderReportsTab()}
+                {activeTab === 'static' && renderStaticTab()}
+            </main>
+        </div>
+    );
 };
 
 export default Admin;

@@ -1,258 +1,114 @@
-
-import { Comic, Page, Genre, Chapter, AdConfig, Comment, StaticPage, ThemeConfig, User, Report } from '../types';
+import { Comic, Genre, Chapter, Page, AdConfig, Comment, StaticPage, ThemeConfig, User, Report, MediaFile } from '../types';
 import { StorageService } from './storage';
-import { USE_MOCK_DATA, API_BASE_URL } from './config';
+import { API_BASE_URL, USE_MOCK_DATA } from './config';
+import { AuthService } from './auth';
 
-// Helper to handle fetch errors safely
-const fetchApi = async (url: string, options?: RequestInit) => {
+// Helper for API calls
+const fetchApi = async (endpoint: string, options: RequestInit = {}) => {
+    const token = AuthService.getToken();
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...((options.headers as Record<string, string>) || {}),
+    };
+
+    // Auto append timestamp to GET requests to prevent caching
+    let url = `${API_BASE_URL}${endpoint}`;
+    if (!options.method || options.method === 'GET') {
+        const separator = url.includes('?') ? '&' : '?';
+        url += `${separator}_t=${Date.now()}`;
+    }
+
     try {
-        const fullUrl = `${API_BASE_URL}${url}`;
-        const res = await fetch(fullUrl, options);
-        
-        const contentType = res.headers.get("content-type");
-        if (contentType && contentType.indexOf("application/json") === -1) {
-            console.warn(`API Non-JSON response from ${url}:`, await res.text());
-            return null; // Trả về null nếu server lỗi (500, 503) trả về HTML
-        }
-
-        if (!res.ok) {
-            console.warn(`API Error ${res.status} from ${url}`);
+        const response = await fetch(url, {
+            ...options,
+            headers,
+        });
+        if (!response.ok) {
+            // Handle 401/403 etc
+            if (response.status === 401) {
+                // AuthService.logout();
+            }
             return null;
         }
-
-        return await res.json();
+        if (response.status === 204) return true;
+        return await response.json();
     } catch (error) {
-        console.error(`Network Error for ${url}:`, error);
+        console.error("API Error:", error);
         return null;
     }
 };
 
-// Default theme to fallback if API fails
-const DEFAULT_THEME_CONFIG: ThemeConfig = {
-    primaryColor: '#d97706',
-    secondaryColor: '#78350f',
-    backgroundColor: '#1c1917',
-    cardColor: '#292524',
-    fontFamily: 'sans',
-    homeLayout: { showSlider: true, showHot: true, showNew: true },
-    siteName: 'ComiVN'
-};
-
-// === REAL API IMPLEMENTATION ===
 const ApiService = {
-    login: async (u: string, p: string): Promise<{success: boolean, user?: User, error?: string}> => {
-        const result = await fetchApi('/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: u, password: p })
-        });
-        if (result && result.success) return result;
-        return { success: false, error: result?.error || 'Đăng nhập thất bại' };
-    },
-
-    getUsers: async (token?: string): Promise<User[]> => {
-        const res = await fetchApi('/users', { headers: { 'Authorization': `Bearer ${token}` } });
-        return Array.isArray(res) ? res : [];
-    },
-
-    saveUser: async (user: User, token?: string): Promise<boolean> => {
-        const res = await fetchApi('/users', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify(user)
-        });
-        return !!res;
-    },
-
-    deleteUser: async (id: string | number, token?: string): Promise<boolean> => {
-        const res = await fetchApi(`/users/${id}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        return !!res;
-    },
-
-    getComics: async (): Promise<Comic[]> => {
-        const res = await fetchApi('/comics');
-        return Array.isArray(res) ? res : [];
-    },
-
-    getComicById: async (id: string): Promise<Comic | undefined> => {
-        const res = await fetchApi(`/comics/${id}`);
-        if (res && (res.id || res.slug)) return res;
-        return undefined;
-    },
+    getComics: async (): Promise<Comic[]> => (await fetchApi('/comics')) || [],
+    getComicById: async (id: string): Promise<Comic | undefined> => (await fetchApi(`/comics/${id}`)) || undefined,
+    saveComic: async (comic: Comic, token?: string): Promise<boolean> => !!(await fetchApi('/comics', { method: 'POST', body: JSON.stringify(comic) })),
+    deleteComic: async (id: string, token?: string): Promise<boolean> => !!(await fetchApi(`/comics/${id}`, { method: 'DELETE' })),
     
-    saveComic: async (comic: Comic, token?: string): Promise<boolean> => {
-        const res = await fetchApi('/comics', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify(comic)
-        });
-        return !!res;
-    },
-
-    deleteComic: async (id: string, token?: string): Promise<boolean> => {
-        const res = await fetchApi(`/comics/${id}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        return !!res;
-    },
-
-    saveChapter: async (chapter: Chapter, pages: Page[], token?: string): Promise<boolean> => {
-        const res = await fetchApi('/chapters', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ ...chapter, pages })
-        });
-        return !!res;
-    },
-
-    deleteChapter: async (id: string, token?: string): Promise<boolean> => {
-        const res = await fetchApi(`/chapters/${id}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        return !!res;
-    },
-
+    getGenres: async (): Promise<Genre[]> => (await fetchApi('/genres')) || [],
+    saveGenre: async (genre: Genre, token?: string): Promise<boolean> => !!(await fetchApi('/genres', { method: 'POST', body: JSON.stringify(genre) })),
+    deleteGenre: async (id: string, token?: string): Promise<boolean> => !!(await fetchApi(`/genres/${id}`, { method: 'DELETE' })),
+    
+    saveChapter: async (chapter: Chapter, pages: Page[], token?: string): Promise<boolean> => !!(await fetchApi('/chapters', { method: 'POST', body: JSON.stringify({ ...chapter, pages }) })),
+    deleteChapter: async (id: string, token?: string): Promise<boolean> => !!(await fetchApi(`/chapters/${id}`, { method: 'DELETE' })),
     getChapterPages: async (chapterId: string): Promise<Page[]> => {
         const res = await fetchApi(`/chapters/${chapterId}/pages`);
         return Array.isArray(res) ? res : [];
     },
+    
+    getAds: async (): Promise<AdConfig[]> => (await fetchApi('/ads')) || [],
+    saveAd: async (ad: AdConfig, token?: string): Promise<boolean> => !!(await fetchApi('/ads', { method: 'POST', body: JSON.stringify(ad) })),
+    deleteAd: async (id: string, token?: string): Promise<boolean> => !!(await fetchApi(`/ads/${id}`, { method: 'DELETE' })),
+    
+    getTheme: async (): Promise<ThemeConfig> => (await fetchApi('/theme')) || {} as ThemeConfig,
+    saveTheme: async (theme: ThemeConfig, token?: string): Promise<boolean> => !!(await fetchApi('/theme', { method: 'POST', body: JSON.stringify(theme) })),
+    
+    getStaticPages: async (): Promise<StaticPage[]> => (await fetchApi('/static-pages')) || [],
+    getStaticPageBySlug: async (slug: string): Promise<StaticPage | undefined> => (await fetchApi(`/static-pages/${slug}`)) || undefined,
+    saveStaticPage: async (page: StaticPage, token?: string): Promise<boolean> => !!(await fetchApi('/static-pages', { method: 'POST', body: JSON.stringify(page) })),
+    
+    getComments: async (): Promise<Comment[]> => (await fetchApi('/comments')) || [],
+    saveComment: async (comment: Comment): Promise<boolean> => !!(await fetchApi('/comments', { method: 'POST', body: JSON.stringify(comment) })),
+    deleteComment: async (id: string): Promise<boolean> => !!(await fetchApi(`/comments/${id}`, { method: 'DELETE' })),
 
-    uploadImage: async (file: File): Promise<string> => {
+    uploadImage: async (file: File, token?: string): Promise<string> => {
+        const formData = new FormData();
+        formData.append('image', file);
+        // Special fetch for FormData (no Content-Type header to let browser set boundary)
+        const tokenStr = AuthService.getToken();
         try {
-            const formData = new FormData();
-            formData.append('image', file);
-            
             const res = await fetch(`${API_BASE_URL}/upload`, {
                 method: 'POST',
-                headers: { 'Authorization': `Bearer fake-jwt-token-xyz` },
+                headers: tokenStr ? { 'Authorization': `Bearer ${tokenStr}` } : {},
                 body: formData
             });
-
-            if (!res.ok) {
-                const text = await res.text();
-                try {
-                    const jsonErr = JSON.parse(text);
-                    throw new Error(jsonErr.error || text);
-                } catch (e) {
-                    throw new Error(`Lỗi Server (${res.status})`);
-                }
-            }
-            
             const data = await res.json();
-            return data.url;
-        } catch (error: any) { 
-            console.error("Upload exception:", error);
-            throw error; 
+            return data.url || '';
+        } catch(e) {
+            console.error(e);
+            return '';
         }
     },
 
-    getGenres: async (): Promise<Genre[]> => {
-        const res = await fetchApi('/genres');
-        return Array.isArray(res) ? res : [];
+    login: async (username: string, password: string): Promise<{ success: boolean; user?: User; error?: string }> => {
+        const res = await fetchApi('/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+        return res || { success: false, error: 'Lỗi kết nối' };
     },
-    saveGenre: async (genre: Genre, token?: string): Promise<boolean> => {
-        const res = await fetchApi('/genres', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify(genre)
-        });
-        return !!res;
-    },
-    deleteGenre: async (id: string, token?: string): Promise<boolean> => {
-        const res = await fetchApi(`/genres/${id}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        return !!res;
-    },
+    getUsers: async (token?: string): Promise<User[]> => (await fetchApi('/users')) || [],
+    saveUser: async (user: User, token?: string): Promise<boolean> => !!(await fetchApi('/users', { method: 'POST', body: JSON.stringify(user) })),
+    deleteUser: async (id: string | number, token?: string): Promise<boolean> => !!(await fetchApi(`/users/${id}`, { method: 'DELETE' })),
 
-    getAds: async (): Promise<AdConfig[]> => {
-        const res = await fetchApi('/ads');
-        return Array.isArray(res) ? res : [];
-    },
-    saveAd: async (ad: AdConfig, token?: string): Promise<boolean> => {
-        const res = await fetchApi('/ads', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify(ad)
-        });
-        return !!res;
-    },
-    deleteAd: async (id: string, token?: string): Promise<boolean> => {
-        const res = await fetchApi(`/ads/${id}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        return !!res;
-    },
+    getReports: async (token?: string): Promise<Report[]> => (await fetchApi('/reports')) || [],
+    sendReport: async (comicId: string, chapterId: string, message: string): Promise<boolean> => !!(await fetchApi('/reports', { method: 'POST', body: JSON.stringify({comicId, chapterId, message}) })),
+    deleteReport: async (id: string, token?: string): Promise<boolean> => !!(await fetchApi(`/reports/${id}`, { method: 'DELETE' })),
 
-    getComments: async (): Promise<Comment[]> => { 
-        const res = await fetchApi('/comments');
-        return Array.isArray(res) ? res : [];
-    }, 
-    saveComment: async (comment: Comment): Promise<boolean> => { return false },
-    deleteComment: async (id: string): Promise<boolean> => { return false },
-    
-    getStaticPages: async (): Promise<StaticPage[]> => {
-        const res = await fetchApi('/static-pages');
-        return Array.isArray(res) ? res : [];
-    },
-    saveStaticPage: async (page: StaticPage): Promise<boolean> => {
-        const res = await fetchApi('/static-pages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer fake-jwt-token-xyz` },
-            body: JSON.stringify(page)
-        });
-        return !!res;
-    },
-    getStaticPageBySlug: async (slug: string): Promise<StaticPage | undefined> => {
-        const res = await fetchApi(`/static-pages/${slug}`);
-        if (res && res.slug) return res;
-        return undefined;
-    },
+    getMedia: async (): Promise<MediaFile[]> => (await fetchApi('/media')) || [],
+    deleteMedia: async (name: string): Promise<boolean> => !!(await fetchApi(`/media/${name}`, { method: 'DELETE' })),
 
-    // QUAN TRỌNG: Xử lý lỗi null khi gọi theme để tránh trắng trang
-    getTheme: async (): Promise<ThemeConfig> => { 
-        const res = await fetchApi('/theme');
-        if (res && Object.keys(res).length > 0) {
-            return res;
-        }
-        return DEFAULT_THEME_CONFIG;
-    },
-    saveTheme: async (theme: ThemeConfig, token?: string): Promise<boolean> => {
-        const res = await fetchApi('/theme', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify(theme)
-        });
-        return !!res;
-    },
-
-    // REPORTS
-    sendReport: async (comicId: string, chapterId: string, message: string): Promise<boolean> => {
-        const res = await fetchApi('/reports', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ comicId, chapterId, message })
-        });
-        return !!res;
-    },
-    getReports: async (token?: string): Promise<Report[]> => {
-        const res = await fetchApi('/reports', { headers: { 'Authorization': `Bearer ${token}` } });
-        return Array.isArray(res) ? res : [];
-    },
-    deleteReport: async (id: string, token?: string): Promise<boolean> => {
-        const res = await fetchApi(`/reports/${id}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        return !!res;
-    },
+    incrementView: async (id: string): Promise<boolean> => {
+        await fetchApi(`/comics/${id}/view`, { method: 'POST' });
+        return true; 
+    }
 };
 
 const MockProvider = {
@@ -281,7 +137,6 @@ const MockProvider = {
     login: async (u: string, p: string) => new Promise<{success: boolean, user?: User, error?: string}>(resolve => {
         setTimeout(() => {
             const users = StorageService.getUsers();
-            // Explicitly type u parameter
             const user = users.find((x: User) => x.username === u && x.password === p);
             if (user) {
                 const { password, ...userWithoutPass } = user;
@@ -293,13 +148,11 @@ const MockProvider = {
     }),
     getUsers: async (token?: string) => new Promise<User[]>(resolve => setTimeout(() => { 
         const users = StorageService.getUsers(); 
-        // Explicitly type u parameter
         resolve(users.map((u: User) => ({...u, password: ''}))); 
     }, 200)),
     saveUser: async (user: User, token?: string) => { StorageService.saveUser(user); return true; },
     deleteUser: async (id: string | number, token?: string) => { StorageService.deleteUser(id); return true; },
     
-    // Updated Mock Report Functions to actually use StorageService
     sendReport: async (comicId: string, chapterId: string, message: string) => {
         const report: Report = {
             id: `rpt-${Date.now()}`,
@@ -312,7 +165,20 @@ const MockProvider = {
         return true; 
     },
     getReports: async (token?: string) => new Promise<Report[]>(resolve => setTimeout(() => resolve(StorageService.getReports()), 200)),
-    deleteReport: async (id: string, token?: string) => { StorageService.deleteReport(id); return true; }
+    deleteReport: async (id: string, token?: string) => { StorageService.deleteReport(id); return true; },
+    
+    getMedia: async () => [], 
+    deleteMedia: async () => true,
+
+    incrementView: async (id: string) => { 
+        const comics = StorageService.getComics();
+        const comic = comics.find(c => c.id === id);
+        if (comic) {
+            comic.views = (comic.views || 0) + 1;
+            StorageService.saveComic(comic);
+        }
+        return true; 
+    }
 };
 
 export const DataProvider = USE_MOCK_DATA ? MockProvider : ApiService;

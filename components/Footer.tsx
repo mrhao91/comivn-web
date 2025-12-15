@@ -6,12 +6,23 @@ import { DataProvider } from '../services/dataProvider';
 
 const Footer: React.FC = () => {
   const [footerContent, setFooterContent] = useState<string>('');
+  const [footerMenu, setFooterMenu] = useState<{label: string, url: string}[]>([]);
 
   useEffect(() => {
       const loadFooter = async () => {
           const theme = await DataProvider.getTheme();
           if (theme.footerContent) {
               setFooterContent(theme.footerContent);
+          }
+          if (theme.footerMenu && theme.footerMenu.length > 0) {
+              setFooterMenu(theme.footerMenu);
+          } else {
+              // Fallback default
+               setFooterMenu([
+                  { label: 'Điều khoản', url: '/p/dieu-khoan' },
+                  { label: 'Chính sách riêng tư', url: '/p/chinh-sach-rieng-tu' },
+                  { label: 'Liên hệ', url: '/p/lien-he' }
+              ]);
           }
       };
       loadFooter();
@@ -36,12 +47,12 @@ const Footer: React.FC = () => {
             </p>
         )}
 
-        <div className="flex justify-center gap-4 text-slate-500 text-sm mt-4">
-            <Link to="/p/dieu-khoan" className="hover:text-primary">Điều khoản</Link>
-            <Link to="/p/chinh-sach-rieng-tu" className="hover:text-primary">Chính sách riêng tư</Link>
-            <Link to="/p/lien-he" className="hover:text-primary">Liên hệ</Link>
-            <span className="text-slate-700">|</span>
-            <Link to="/login" className="hover:text-primary flex items-center gap-1"><Lock size={12}/> Đăng nhập Admin</Link>
+        <div className="flex justify-center gap-4 text-slate-500 text-sm mt-4 flex-wrap">
+            {footerMenu.map((item, idx) => (
+                <Link key={idx} to={item.url} className="hover:text-primary">{item.label}</Link>
+            ))}
+            <span className="text-slate-700 hidden md:inline">|</span>
+            <Link to="/login" className="hover:text-primary flex items-center gap-1"><Lock size={12}/> Admin</Link>
         </div>
         <p className="text-slate-600 text-xs mt-6">
           © {new Date().getFullYear()} ComiVN. All rights reserved.

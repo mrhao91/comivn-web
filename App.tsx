@@ -1,4 +1,3 @@
-
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Outlet, Navigate, useParams } from 'react-router-dom';
 import Header from './components/Header';
@@ -13,6 +12,7 @@ import StaticPage from './pages/StaticPage';
 import { AuthService } from './services/auth';
 import { DataProvider } from './services/dataProvider';
 import SEOHead from './components/SEOHead';
+import { DEFAULT_THEME } from './services/seedData';
 
 // Layout for public pages
 const PublicLayout: React.FC = () => {
@@ -52,19 +52,23 @@ const NotFound = () => (
 const App: React.FC = () => {
   useEffect(() => {
     const loadTheme = async () => {
-        const theme = await DataProvider.getTheme();
+        const themeData = await DataProvider.getTheme();
+        // Merge fetched theme with default theme to ensure no undefined values
+        const theme = { ...DEFAULT_THEME, ...themeData };
+        
         const root = document.documentElement;
         
-        root.style.setProperty('--color-primary', theme.primaryColor);
-        root.style.setProperty('--color-secondary', theme.secondaryColor);
-        root.style.setProperty('--color-dark', theme.backgroundColor);
-        root.style.setProperty('--color-card', theme.cardColor);
+        // Use fallbacks to prevent "undefined" CSS variables causing black screen
+        root.style.setProperty('--color-primary', theme.primaryColor || '#d97706');
+        root.style.setProperty('--color-secondary', theme.secondaryColor || '#78350f');
+        root.style.setProperty('--color-dark', theme.backgroundColor || '#1c1917');
+        root.style.setProperty('--color-card', theme.cardColor || '#292524');
+        root.style.setProperty('--color-darker', '#0c0a09'); 
         
         let fontStack = "'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
         if (theme.fontFamily === 'serif') fontStack = "Georgia, Cambria, 'Times New Roman', Times, serif";
         if (theme.fontFamily === 'mono') fontStack = "'Courier New', Courier, monospace";
         root.style.setProperty('--font-family', fontStack);
-        root.style.setProperty('--color-darker', '#0c0a09'); 
     };
     loadTheme();
   }, []);
@@ -78,6 +82,7 @@ const App: React.FC = () => {
             <Route path="/categories" element={<Categories />} />
             <Route path="/truyen/:id" element={<ComicDetail />} />
             <Route path="/p/:slug" element={<StaticPage />} />
+            <Route path="/login" element={<Login />} />
             
             {/* Redirect Legacy Routes (Fix lỗi URL cũ) */}
             <Route path="/comic/:id" element={<RedirectComic />} />
@@ -91,7 +96,6 @@ const App: React.FC = () => {
           {/* Redirect Legacy Reader */}
           <Route path="/read/:id" element={<RedirectReader />} />
           
-          <Route path="/login" element={<Login />} />
           
           {/* Admin Page */}
           <Route 

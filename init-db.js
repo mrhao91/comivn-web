@@ -1,6 +1,6 @@
 
-import mysql from 'mysql2';
-import dotenv from 'dotenv';
+const mysql = require('mysql2');
+const dotenv = require('dotenv');
 
 dotenv.config();
 
@@ -20,19 +20,17 @@ if (process.env.DB_HOST !== 'localhost' && process.env.DB_HOST !== '127.0.0.1') 
 const connection = mysql.createConnection(dbConfig);
 
 const createTables = async () => {
-    console.log("🔄 Đang kết nối tới MySQL...");
+    console.log("🔄 Connecting to MySQL...");
     
     connection.connect(err => {
         if (err) {
-            console.error('❌ Lỗi kết nối:', err);
+            console.error('❌ Connection Error:', err);
             process.exit(1);
         }
-        console.log('✅ Kết nối thành công!');
+        console.log('✅ Connected!');
     });
 
-    // Add DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci to all tables
     const tableOptions = "DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-
     const queries = [
         `CREATE TABLE IF NOT EXISTS comics (
             id VARCHAR(255) PRIMARY KEY,
@@ -108,28 +106,21 @@ const createTables = async () => {
             message TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ${tableOptions}`,
-        // Seed default Admin User if not exists
         `INSERT IGNORE INTO users (id, username, password, role) VALUES (1, 'admin', '123456', 'admin')`,
-        // Seed default Theme Config
         `INSERT IGNORE INTO settings (id, theme_config) VALUES (1, '{}')`
     ];
 
     for (const query of queries) {
-        await new Promise((resolve, reject) => {
+        await new Promise((resolve) => {
             connection.query(query, (err) => {
-                if (err) {
-                    console.error('❌ Lỗi tạo bảng:', err.message);
-                    // reject(err); // Không reject để tiếp tục chạy các query khác
-                    resolve();
-                } else {
-                    console.log('✅ Query OK');
-                    resolve();
-                }
+                if (err) console.error('❌ Table Error:', err.message);
+                else console.log('✅ Query OK');
+                resolve();
             });
         });
     }
 
-    console.log("🎉 Hoàn tất khởi tạo Database!");
+    console.log("🎉 Database setup complete!");
     connection.end();
 };
 

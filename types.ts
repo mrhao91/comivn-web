@@ -81,6 +81,7 @@ export interface ThemeConfig {
         showNew: boolean;
     };
     headerMenu?: { label: string; url: string }[];
+    footerMenu?: { label: string; url: string }[];
     footerContent?: string;
     siteName?: string;
     homeMetaTitle?: string;
@@ -103,4 +104,11 @@ export interface Report {
     created_at: string;
     comicTitle?: string; // Optional for UI display
     chapterTitle?: string; // Optional for UI display
+}
+
+export interface MediaFile {
+    name: string;
+    url: string;
+    size: number;
+    created: string;
 }

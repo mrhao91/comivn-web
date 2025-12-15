@@ -12,6 +12,11 @@ export const DEFAULT_THEME: ThemeConfig = {
         { label: 'Trang chủ', url: '/' },
         { label: 'Thể loại', url: '/categories' }
     ],
+    footerMenu: [
+        { label: 'Điều khoản', url: '/p/dieu-khoan' },
+        { label: 'Chính sách riêng tư', url: '/p/chinh-sach-rieng-tu' },
+        { label: 'Liên hệ', url: '/p/lien-he' }
+    ],
     siteName: 'ComiVN',
     homeMetaTitle: 'ComiVN - Đọc Truyện Tranh Online Hay Nhất',
     homeMetaDescription: 'Website đọc truyện tranh online miễn phí chất lượng cao.',
