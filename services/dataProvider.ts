@@ -1,3 +1,4 @@
+
 import { Comic, Genre, Chapter, Page, AdConfig, Comment, StaticPage, ThemeConfig, User, Report, MediaFile } from '../types';
 import { StorageService } from './storage';
 import { API_BASE_URL, USE_MOCK_DATA } from './config';
@@ -25,10 +26,6 @@ const fetchApi = async (endpoint: string, options: RequestInit = {}) => {
             headers,
         });
         if (!response.ok) {
-            // Handle 401/403 etc
-            if (response.status === 401) {
-                // AuthService.logout();
-            }
             return null;
         }
         if (response.status === 204) return true;
@@ -74,7 +71,6 @@ const ApiService = {
     uploadImage: async (file: File, token?: string): Promise<string> => {
         const formData = new FormData();
         formData.append('image', file);
-        // Special fetch for FormData (no Content-Type header to let browser set boundary)
         const tokenStr = AuthService.getToken();
         try {
             const res = await fetch(`${API_BASE_URL}/upload`, {
@@ -108,6 +104,64 @@ const ApiService = {
     incrementView: async (id: string): Promise<boolean> => {
         await fetchApi(`/comics/${id}/view`, { method: 'POST' });
         return true; 
+    },
+
+    // LEECH METHODS (Updated for Robust Error Handling)
+    leechScan: async (url: string): Promise<{success: boolean, data?: any, error?: string}> => {
+        const token = AuthService.getToken();
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        };
+        try {
+            const res = await fetch(`${API_BASE_URL}/leech/scan`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ url })
+            });
+            
+            // QUAN TRỌNG: Kiểm tra xem server có trả về JSON không
+            const contentType = res.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                const text = await res.text();
+                // Nếu trả về HTML (thường là trang index.html của Vite khi 404), nghĩa là API Backend chưa chạy
+                if (text.includes("<!DOCTYPE html>")) {
+                    return { success: false, error: "LỖI KẾT NỐI: Server chưa có API Leech. Hãy Restart lại file server.js!" };
+                }
+                return { success: false, error: `Lỗi Server (${res.status}): ${res.statusText}` };
+            }
+
+            const data = await res.json();
+            if (!res.ok) return { success: false, error: data.error || res.statusText };
+            return data;
+        } catch(e: any) {
+            return { success: false, error: "Lỗi mạng hoặc Server không phản hồi: " + e.message };
+        }
+    },
+    leechChapterContent: async (url: string): Promise<{success: boolean, images?: string[], error?: string}> => {
+        const token = AuthService.getToken();
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        };
+        try {
+            const res = await fetch(`${API_BASE_URL}/leech/chapter`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ url })
+            });
+
+            const contentType = res.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                return { success: false, error: "LỖI: API không trả về JSON (Có thể bị chặn hoặc lỗi Server)" };
+            }
+
+            const data = await res.json();
+            if (!res.ok) return { success: false, error: data.error || res.statusText };
+            return data;
+        } catch(e: any) {
+            return { success: false, error: "Lỗi mạng: " + e.message };
+        }
     }
 };
 
@@ -178,7 +232,11 @@ const MockProvider = {
             StorageService.saveComic(comic);
         }
         return true; 
-    }
+    },
+
+    // MOCK LEECH (Does nothing)
+    leechScan: async (url: string): Promise<{success: boolean, data?: any, error?: string}> => ({ success: false, error: 'Mock mode: cannot leech' }),
+    leechChapterContent: async (url: string): Promise<{success: boolean, images?: string[], error?: string}> => ({ success: false, error: 'Mock mode: cannot leech' })
 };
 
 export const DataProvider = USE_MOCK_DATA ? MockProvider : ApiService;
