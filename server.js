@@ -1,296 +1,360 @@
 
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const urlModule = require('url');
+const zlib = require('zlib');
 
 // --- CẤU HÌNH ---
 const PORT = process.env.PORT || 3000;
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 
-// --- HÀM GHI LOG LỖI ---
+// --- HELPER LOG ---
 const logError = (err) => {
     const msg = `[${new Date().toISOString()}] ERROR: ${err.stack || err}\n`;
     console.error(msg);
-    try {
-        fs.appendFileSync(path.join(__dirname, 'server_error.log'), msg);
-    } catch (e) { console.error("Could not write logs"); }
+    try { fs.appendFileSync(path.join(__dirname, 'server_error.log'), msg); } catch (e) {}
 };
 
-// --- MAIN SERVER LOGIC ---
-const startServer = () => {
-    // Kiểm tra nhanh xem đã có node_modules chưa
-    if (!fs.existsSync(path.join(__dirname, 'node_modules'))) {
-        throw new Error("Thư mục 'node_modules' không tồn tại. Bạn cần chạy 'Run NPM Install' trên cPanel.");
-    }
+// --- CORE REQUEST ---
+const singleRequest = (url) => {
+    return new Promise((resolve, reject) => {
+        let parsedUrl;
+        try { parsedUrl = new URL(url); } catch (e) { return reject(new Error('Invalid URL')); }
 
-    // Load các thư viện (Sẽ throw lỗi nếu chưa cài)
+        // Random Modern User-Agent
+        const agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        ];
+        const userAgent = agents[Math.floor(Math.random() * agents.length)];
+
+        const reqOptions = {
+            hostname: parsedUrl.hostname,
+            path: parsedUrl.pathname + parsedUrl.search,
+            method: 'GET',
+            headers: {
+                'User-Agent': userAgent,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Referer': parsedUrl.origin // Fake Same-origin referrer
+            }
+        };
+
+        const req = https.request(reqOptions, (res) => {
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                let nextUrl = res.headers.location;
+                if (!nextUrl.startsWith('http')) nextUrl = new URL(nextUrl, url).toString();
+                return singleRequest(nextUrl).then(resolve).catch(reject);
+            }
+
+            let stream = res;
+            if (res.headers['content-encoding'] === 'gzip') stream = res.pipe(zlib.createGunzip());
+            else if (res.headers['content-encoding'] === 'br') stream = res.pipe(zlib.createBrotliDecompress());
+            else if (res.headers['content-encoding'] === 'deflate') stream = res.pipe(zlib.createInflate());
+
+            let data = Buffer.alloc(0);
+            stream.on('data', (chunk) => { data = Buffer.concat([data, chunk]); });
+            stream.on('end', () => {
+                const html = data.toString('utf8');
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                    resolve({ html, statusCode: res.statusCode });
+                } else {
+                    reject(new Error(`HTTP ${res.statusCode}`));
+                }
+            });
+            stream.on('error', (e) => reject(e));
+        });
+
+        req.on('error', (e) => reject(e));
+        req.setTimeout(25000, () => { req.destroy(); reject(new Error('Timeout')); });
+        req.end();
+    });
+};
+
+// --- CHIẾN THUẬT LEECH THÔNG MINH ---
+const fetchUrl = async (targetUrl) => {
+    const strategies = [
+        { 
+            name: 'Google Cache', 
+            getUrl: (u) => `http://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(u)}&strip=0&vwsrc=0` 
+        },
+        { 
+            name: 'Google Translate', 
+            getUrl: (u) => `https://translate.google.com/translate?sl=vi&tl=vi&hl=vi&u=${encodeURIComponent(u)}&client=webapp` 
+        },
+        { 
+            name: 'Direct', 
+            getUrl: (u) => u 
+        }
+    ];
+
+    let lastHtml = '';
+
+    for (const strategy of strategies) {
+        try {
+            console.log(`[Leech] Strategy: ${strategy.name}...`);
+            const result = await singleRequest(strategy.getUrl(targetUrl));
+            lastHtml = result.html;
+            
+            if (result.html && (result.html.includes('challenge-platform') || result.html.includes('Cloudflare') || result.html.includes('Attention Required'))) {
+                throw new Error("Cloudflare Challenge Detected");
+            }
+            
+            if (result.html && (result.html.includes('<html') || result.html.includes('<!DOCTYPE'))) {
+                return result.html;
+            }
+            throw new Error("Invalid HTML content");
+        } catch (e) {
+            console.warn(`[Leech] ${strategy.name} Failed: ${e.message}`);
+        }
+    }
+    
+    // Nếu thất bại hết, trả về HTML cuối cùng để debug (có thể là trang lỗi)
+    if(lastHtml) return lastHtml;
+    throw new Error("Không thể truy cập trang nguồn (Bị chặn hoàn toàn).");
+};
+
+// --- SERVER SETUP ---
+const startServer = () => {
+    if (!fs.existsSync(path.join(__dirname, 'node_modules'))) throw new Error("Missing node_modules");
+
     const express = require('express');
     const cors = require('cors');
     const dotenv = require('dotenv');
-    
-    // Safe load mysql/multer
     let mysql, multer;
-    try { mysql = require('mysql2'); } catch(e) { console.warn("Missing mysql2"); }
-    try { multer = require('multer'); } catch(e) { console.warn("Missing multer"); }
+    try { mysql = require('mysql2'); } catch(e) {}
+    try { multer = require('multer'); } catch(e) {}
 
     dotenv.config();
     const app = express();
 
-    // 1. Cấu hình App
-    app.disable('etag'); // Prevent caching
+    app.disable('etag');
     app.use(cors({ origin: '*', optionsSuccessStatus: 200 }));
     app.use(express.json({ limit: '50mb' }));
     app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-    // 2. Cấu hình Upload
+    // Config Upload & DB
     let upload = null;
     if (multer) {
         if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
         app.use('/uploads', express.static(UPLOAD_DIR));
-        
         const storage = multer.diskStorage({
             destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-            filename: (req, file, cb) => {
-                const ext = path.extname(file.originalname) || '.jpg';
-                cb(null, `img-${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`);
-            }
+            filename: (req, file, cb) => cb(null, `img-${Date.now()}-${Math.round(Math.random()*1E9)}${path.extname(file.originalname)||'.jpg'}`)
         });
         upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
     }
 
-    // 3. Cấu hình Database
     let db;
     if (mysql && process.env.DB_USER) {
-        const dbConfig = {
-            host: process.env.DB_HOST || 'localhost',
-            user: process.env.DB_USER,
-            password: process.env.DB_PASSWORD,
-            database: process.env.DB_NAME,
-            port: process.env.DB_PORT || 3306,
-            waitForConnections: true,
-            connectionLimit: 10,
-            charset: 'utf8mb4'
-        };
-        // Fix SSL for Aiven or Remote MySQL
-        if (process.env.DB_HOST && process.env.DB_HOST !== 'localhost' && process.env.DB_HOST !== '127.0.0.1') {
-            dbConfig.ssl = { rejectUnauthorized: false };
-        }
-        
         try {
+            const dbConfig = {
+                host: process.env.DB_HOST || 'localhost',
+                user: process.env.DB_USER,
+                password: process.env.DB_PASSWORD,
+                database: process.env.DB_NAME,
+                port: process.env.DB_PORT || 3306,
+                waitForConnections: true,
+                connectionLimit: 10,
+                charset: 'utf8mb4'
+            };
+            if (process.env.DB_HOST !== 'localhost' && process.env.DB_HOST !== '127.0.0.1') dbConfig.ssl = { rejectUnauthorized: false };
             db = mysql.createPool(dbConfig);
-            // Test connection
-            db.getConnection((err, conn) => {
-                if (err) logError(`DB Connection Failed: ${err.message}`);
-                else { 
-                    console.log('✅ DB Connected'); 
-                    
-                    // AUTO FIX: Create missing Reports table if it doesn't exist
-                    const reportTableSql = `CREATE TABLE IF NOT EXISTS reports (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        comicId VARCHAR(255),
-                        chapterId VARCHAR(255),
-                        message TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`;
-                    
-                    conn.query(reportTableSql, (err) => {
-                        if (err) console.error("Could not auto-create reports table:", err.message);
-                        else console.log("Reports table checked/created");
-                    });
-
-                    conn.release(); 
-                }
-            });
-        } catch(e) { logError(e); }
+            db.getConnection((err, conn) => { if(!err) { console.log('✅ DB Connected'); conn.release(); } else console.error('DB Error:', err.message); });
+        } catch(e) { console.error(e); }
     }
 
-    // --- HELPER QUERIES ---
     const safeQuery = (sql, params, res, callback) => {
-        if (!db) return res.status(503).json({ error: "Database not connected (Check config)" });
+        if (!db) return res.status(503).json({ error: "No DB" });
         db.query(sql, params, (err, result) => {
-            if (err) {
-                console.error("SQL Error:", err.message, "Query:", sql);
-                return res.status(500).json({ error: err.message });
-            }
+            if (err) return res.status(500).json({ error: err.message });
             callback(result);
         });
     };
-
     const authMiddleware = (req, res, next) => {
         const auth = req.headers['authorization'];
-        const token = auth && auth.split(' ')[1];
-        if (token === 'fake-jwt-token-xyz') next();
+        if (auth && auth.split(' ')[1] === 'fake-jwt-token-xyz') next();
         else res.status(401).json({ error: 'Unauthorized' });
     };
 
-    // --- ROUTES ---
     const api = express.Router();
-
-    // Middleware to prevent caching for API routes
-    api.use((req, res, next) => {
-        res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-        next();
-    });
-
-    api.get('/health', (req, res) => res.json({ status: 'ok', upload: !!upload, db: !!db }));
+    api.get('/health', (req, res) => res.json({ status: 'ok' }));
     
-    // Login
-    api.post('/login', (req, res) => {
-        const { username, password } = req.body;
-        if (!db) return res.status(503).json({ success: false, error: "No DB" });
-        db.query('SELECT * FROM users WHERE username = ?', [username], (err, results) => {
-            if (err || results.length === 0) return res.json({ success: false, error: "Sai tài khoản" });
-            const user = results[0];
-            if (user.password == password) res.json({ success: true, user: { id: user.id, username: user.username, role: user.role }, token: 'fake-jwt-token-xyz' });
-            else res.json({ success: false, error: "Sai mật khẩu" });
-        });
-    });
+    // --- BASIC CRUD ROUTES ---
+    api.post('/login', (req, res) => { const { username, password } = req.body; if (!db) return res.status(503).json({ success: false, error: "No DB" }); db.query('SELECT * FROM users WHERE username = ?', [username], (err, results) => { if (err || results.length === 0) return res.json({ success: false, error: "Sai tài khoản" }); const user = results[0]; if (user.password == password) res.json({ success: true, user: { id: user.id, username: user.username, role: user.role }, token: 'fake-jwt-token-xyz' }); else res.json({ success: false, error: "Sai mật khẩu" }); }); });
+    api.post('/upload', authMiddleware, (req, res) => { if(!upload)return res.status(503).json({error:"No upload"}); upload.single('image')(req,res,(e)=>{if(e||!req.file)return res.status(400).json({error:e?e.message:'No file'}); res.json({url:`/uploads/${req.file.filename}`})}); });
+    api.get('/media', authMiddleware, (req, res) => { if(!fs.existsSync(UPLOAD_DIR))return res.json([]); fs.readdir(UPLOAD_DIR,(e,f)=>{res.json(e?[]:f.map(x=>({name:x,url:`/uploads/${x}`,size:0,created:new Date()})))}) });
+    api.delete('/media/:filename', authMiddleware, (req,res)=>{const p=path.join(UPLOAD_DIR,req.params.filename); if(fs.existsSync(p))fs.unlink(p,()=>res.json({message:'Deleted'})); else res.status(404).json({error:'Not found'})});
+    api.get('/comics', (req,res)=>safeQuery(`SELECT c.*,(SELECT id FROM chapters WHERE comicId=c.id ORDER BY number DESC LIMIT 1) as latest_chap_id,(SELECT number FROM chapters WHERE comicId=c.id ORDER BY number DESC LIMIT 1) as latest_chap_number,(SELECT updatedAt FROM chapters WHERE comicId=c.id ORDER BY number DESC LIMIT 1) as latest_chap_date FROM comics c ORDER BY updated_at DESC`,[],res,r=>{res.json(r.map(c=>({...c,genres:c.genres?c.genres.split(','):[],isRecommended:c.isRecommended===1,chapters:c.latest_chap_id?[{id:c.latest_chap_id,number:c.latest_chap_number,updatedAt:c.latest_chap_date,title:`Chapter ${c.latest_chap_number}`}]:[]})))}));
+    api.get('/comics/:id', (req,res)=>safeQuery('SELECT * FROM comics WHERE id=? OR slug=?',[req.params.id,req.params.id],res,r=>{if(!r.length)return res.status(404).json({message:'Not found'});const c=r[0];c.genres=c.genres?c.genres.split(','):[];c.isRecommended=c.isRecommended===1;safeQuery('SELECT * FROM chapters WHERE comicId=? ORDER BY number DESC',[c.id],res,ch=> {c.chapters=ch||[];res.json(c)})}));
+    api.post('/comics', authMiddleware, (req,res)=>{const{id,title,slug,coverImage,author,status,genres,description,views,isRecommended,metaTitle,metaDescription,metaKeywords}=req.body;const g=Array.isArray(genres)?genres.join(','):genres;const ir=isRecommended?1:0;safeQuery(`INSERT INTO comics (id,title,slug,coverImage,author,status,genres,description,views,isRecommended,metaTitle,metaDescription,metaKeywords) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE title=?,slug=?,coverImage=?,author=?,status=?,genres=?,description=?,views=?,isRecommended=?,metaTitle=?,metaDescription=?,metaKeywords=?`,[id,title,slug,coverImage,author,status,g,description,views||0,ir,metaTitle,metaDescription,metaKeywords,title,slug,coverImage,author,status,g,description,views||0,ir,metaTitle,metaDescription,metaKeywords],res,()=>res.json({message:'Saved'}))});
+    api.delete('/comics/:id', authMiddleware, (req,res)=>safeQuery('DELETE FROM comics WHERE id=?',[req.params.id],res,()=>res.json({message:'Deleted'})));
+    api.post('/chapters', authMiddleware, (req,res)=>{const{id,comicId,number,title,pages}=req.body;safeQuery('INSERT INTO chapters (id,comicId,number,title) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE number=?,title=?',[id,comicId,number,title,number,title],res,()=>{safeQuery('DELETE FROM chapter_pages WHERE chapterId=?',[id],res,()=>{if(pages?.length){const v=pages.map(p=>[id,p.imageUrl,p.pageNumber]);safeQuery('INSERT INTO chapter_pages (chapterId,imageUrl,pageNumber) VALUES ?',[v],res,()=>{safeQuery('UPDATE comics SET updated_at=NOW() WHERE id=?',[comicId],res,()=>res.json({message:'Saved'}))})}else res.json({message:'Saved'})})})});
+    api.delete('/chapters/:id', authMiddleware, (req,res)=>safeQuery('DELETE FROM chapters WHERE id=?',[req.params.id],res,()=>res.json({message:'Deleted'})));
+    api.get('/chapters/:id/pages', (req,res)=>safeQuery('SELECT * FROM chapter_pages WHERE chapterId=? ORDER BY pageNumber ASC',[req.params.id],res,r=>res.json(r)));
+    api.get('/genres', (req,res)=>safeQuery('SELECT * FROM genres',[],res,r=>res.json(r.map(g=>({...g,isShowHome:g.isShowHome===1})))));
+    api.post('/genres', authMiddleware, (req,res)=>{const{id,name,slug,isShowHome,metaTitle,metaDescription,metaKeywords}=req.body;const s=isShowHome?1:0;safeQuery('INSERT INTO genres (id,name,slug,isShowHome,metaTitle,metaDescription,metaKeywords) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=?,slug=?,isShowHome=?,metaTitle=?,metaDescription=?,metaKeywords=?',[id,name,slug,s,metaTitle,metaDescription,metaKeywords,name,slug,s,metaTitle,metaDescription,metaKeywords],res,()=>res.json({message:'Saved'}))});
+    api.delete('/genres/:id', authMiddleware, (req,res)=>safeQuery('DELETE FROM genres WHERE id=?',[req.params.id],res,()=>res.json({message:'Deleted'})));
+    api.get('/ads', (req,res)=>safeQuery('SELECT * FROM ads',[],res,r=>res.json(r.map(a=>({...a,isActive:a.isActive===1})))));
+    api.post('/ads', authMiddleware, (req,res)=>{const{id,position,imageUrl,linkUrl,isActive,title}=req.body;const a=isActive?1:0;safeQuery('INSERT INTO ads (id,position,imageUrl,linkUrl,isActive,title) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE position=?,imageUrl=?,linkUrl=?,isActive=?,title=?',[id,position,imageUrl,linkUrl,a,title,position,imageUrl,linkUrl,a,title],res,()=>res.json({message:'Saved'}))});
+    api.delete('/ads/:id', authMiddleware, (req,res)=>safeQuery('DELETE FROM ads WHERE id=?',[req.params.id],res,()=>res.json({message:'Deleted'})));
+    api.get('/theme', (req,res)=>safeQuery('SELECT theme_config FROM settings WHERE id=1',[],res,r=>res.json(r.length&&r[0].theme_config?(typeof r[0].theme_config==='string'?JSON.parse(r[0].theme_config):r[0].theme_config):{})));
+    api.post('/theme', authMiddleware, (req,res)=>{const c=JSON.stringify(req.body);safeQuery('INSERT INTO settings (id,theme_config) VALUES (1,?) ON DUPLICATE KEY UPDATE theme_config=?',[c,c],res,()=>res.json({message:'Saved'}))});
+    api.get('/static-pages', (req,res)=>safeQuery('SELECT * FROM static_pages',[],res,r=>res.json(r)));
+    api.get('/static-pages/:slug', (req,res)=>safeQuery('SELECT * FROM static_pages WHERE slug=?',[req.params.slug],res,r=>{if(!r.length)return res.status(404).json({message:'Not found'});res.json(r[0])}));
+    api.post('/static-pages', authMiddleware, (req,res)=>{const{slug,title,content,metaTitle,metaDescription,metaKeywords}=req.body;safeQuery('INSERT INTO static_pages (slug,title,content,metaTitle,metaDescription,metaKeywords) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE title=?,content=?,metaTitle=?,metaDescription=?,metaKeywords=?',[slug,title,content,metaTitle,metaDescription,metaKeywords,title,content,metaTitle,metaDescription,metaKeywords],res,()=>res.json({message:'Saved'}))});
+    api.get('/users', authMiddleware, (req,res)=>safeQuery('SELECT id,username,role,created_at FROM users',[],res,r=>res.json(r)));
+    api.post('/users', authMiddleware, (req,res)=>{const{id,username,password,role}=req.body;if(!id)safeQuery('INSERT INTO users (username,password,role) VALUES (?,?,?)',[username,password,role],res,()=>res.json({message:'Saved'}));else{if(password)safeQuery('UPDATE users SET username=?,password=?,role=? WHERE id=?',[username,password,role,id],res,()=>res.json({message:'Saved'}));else safeQuery('UPDATE users SET username=?,role=? WHERE id=?',[username,role,id],res,()=>res.json({message:'Saved'}));}});
+    api.delete('/users/:id', authMiddleware, (req,res)=>safeQuery('DELETE FROM users WHERE id=?',[req.params.id],res,()=>res.json({message:'Deleted'})));
+    api.get('/reports', authMiddleware, (req,res)=>safeQuery(`SELECT r.*,c.title as comicTitle,ch.title as chapterTitle FROM reports r LEFT JOIN comics c ON r.comicId=c.id LEFT JOIN chapters ch ON r.chapterId=ch.id ORDER BY r.id DESC`,[],res,r=>res.json(r)));
+    api.post('/reports', (req,res)=>safeQuery('INSERT INTO reports (comicId,chapterId,message) VALUES (?,?,?)',[req.body.comicId,req.body.chapterId,req.body.message],res,()=>res.json({message:'Sent'})));
+    api.delete('/reports/:id', authMiddleware, (req,res)=>safeQuery('DELETE FROM reports WHERE id=?',[req.params.id],res,()=>res.json({message:'Deleted'})));
+    api.get('/comments', (req,res)=>res.json([]));
 
-    // Upload
-    api.post('/upload', authMiddleware, (req, res) => {
-        if (!upload) return res.status(503).json({ error: "Upload module missing" });
-        upload.single('image')(req, res, (err) => {
-            if (err) return res.status(500).json({ error: err.message });
-            if (!req.file) return res.status(400).json({ error: 'No file' });
-            res.json({ url: `/uploads/${req.file.filename}` });
-        });
-    });
+    // === LEECH API: GLOBAL SCAN (Version 3.0) ===
+    api.post('/leech/scan', authMiddleware, async (req, res) => {
+        const { url } = req.body;
+        if (!url || !url.includes('truyenqq')) return res.status(400).json({ error: 'URL không hợp lệ' });
 
-    // Media
-    api.get('/media', authMiddleware, (req, res) => {
-        if (!fs.existsSync(UPLOAD_DIR)) return res.json([]);
-        fs.readdir(UPLOAD_DIR, (err, files) => {
-            if (err) return res.json([]);
-            const media = files.map(f => {
-                try {
-                    const s = fs.statSync(path.join(UPLOAD_DIR, f));
-                    return { name: f, url: `/uploads/${f}`, size: s.size, created: s.birthtime };
-                } catch { return null; }
-            }).filter(Boolean);
-            res.json(media);
-        });
-    });
-    api.delete('/media/:filename', authMiddleware, (req, res) => {
-        const p = path.join(UPLOAD_DIR, req.params.filename);
-        if(fs.existsSync(p)) fs.unlink(p, ()=>res.json({message:'Deleted'}));
-        else res.status(404).json({error:'Not found'});
-    });
+        try {
+            const html = await fetchUrl(url);
+            
+            // 1. Metadata Parsing
+            const getMeta = (p) => { const m = html.match(new RegExp(`<meta property="${p}" content="(.*?)"`)); return m ? m[1] : ''; };
+            
+            let coverImage = getMeta('og:image');
+            // Clean Google Proxy URL in Cover Image
+            if (coverImage.includes('googleusercontent') && coverImage.includes('u=')) {
+                 const u = new URL(coverImage);
+                 if (u.searchParams.get('u')) coverImage = u.searchParams.get('u');
+            }
 
-    // Comics
-    api.get('/comics', (req, res) => {
-        const sql = `SELECT c.*, (SELECT id FROM chapters WHERE comicId = c.id ORDER BY number DESC LIMIT 1) as latest_chap_id, (SELECT number FROM chapters WHERE comicId = c.id ORDER BY number DESC LIMIT 1) as latest_chap_number, (SELECT updatedAt FROM chapters WHERE comicId = c.id ORDER BY number DESC LIMIT 1) as latest_chap_date FROM comics c ORDER BY updated_at DESC`;
-        safeQuery(sql, [], res, r => {
-            const comics = r.map(c => ({
-                ...c,
-                genres: c.genres ? c.genres.split(',') : [],
-                isRecommended: c.isRecommended === 1,
-                chapters: c.latest_chap_id ? [{ id: c.latest_chap_id, number: c.latest_chap_number, updatedAt: c.latest_chap_date, title: `Chapter ${c.latest_chap_number}` }] : [] 
-            }));
-            res.json(comics);
-        });
-    });
+            const title = getMeta('og:title').replace(/ - Chapter \d+$/, '').replace(/ - TruyenQQ.+$/, '').trim();
+            const description = getMeta('og:description');
+            
+            const chapters = [];
 
-    api.get('/comics/:id', (req, res) => {
-        safeQuery('SELECT * FROM comics WHERE id=? OR slug=?', [req.params.id, req.params.id], res, r => {
-            if (r.length === 0) return res.status(404).json({message: 'Not found'});
-            const comic = r[0];
-            comic.genres = comic.genres ? comic.genres.split(',') : [];
-            comic.isRecommended = comic.isRecommended===1;
-            safeQuery('SELECT * FROM chapters WHERE comicId=? ORDER BY number DESC', [comic.id], res, chaps => {
-                comic.chapters = chaps || [];
-                res.json(comic);
-            });
-        });
-    });
-
-    // Create/Update Comic
-    api.post('/comics', authMiddleware, (req, res) => {
-        const { id, title, slug, coverImage, author, status, genres, description, views, isRecommended, metaTitle, metaDescription, metaKeywords } = req.body;
-        const gStr = Array.isArray(genres) ? genres.join(',') : genres;
-        const isRec = isRecommended ? 1 : 0;
-        const viewCount = views || 0;
-        
-        const sql = `INSERT INTO comics (id,title,slug,coverImage,author,status,genres,description,views,isRecommended,metaTitle,metaDescription,metaKeywords) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE title=?,slug=?,coverImage=?,author=?,status=?,genres=?,description=?,views=?,isRecommended=?,metaTitle=?,metaDescription=?,metaKeywords=?`;
-        
-        safeQuery(sql, [id,title,slug,coverImage,author,status,gStr,description,viewCount,isRec,metaTitle,metaDescription,metaKeywords,title,slug,coverImage,author,status,gStr,description,viewCount,isRec,metaTitle,metaDescription,metaKeywords], res, () => res.json({message: 'Saved'}));
-    });
-    
-    api.delete('/comics/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM comics WHERE id=?',[req.params.id],res, ()=>res.json({message:'Deleted'})));
-
-    // API Tăng View
-    api.post('/comics/:id/view', (req, res) => {
-        safeQuery('UPDATE comics SET views = views + 1 WHERE id = ?', [req.params.id], res, () => res.json({success: true}));
-    });
-
-    // Chapters
-    api.post('/chapters', authMiddleware, (req, res) => {
-        const { id, comicId, number, title, pages } = req.body;
-        safeQuery('INSERT INTO chapters (id,comicId,number,title) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE number=?,title=?', [id,comicId,number,title,number,title], res, () => {
-            safeQuery('DELETE FROM chapter_pages WHERE chapterId=?', [id], res, () => {
-                if (pages?.length > 0) {
-                    const vals = pages.map(p => [id, p.imageUrl, p.pageNumber]);
-                    safeQuery('INSERT INTO chapter_pages (chapterId,imageUrl,pageNumber) VALUES ?', [vals], res, () => {
-                        safeQuery('UPDATE comics SET updated_at=NOW() WHERE id=?', [comicId], res, () => res.json({message:'Saved'}));
+            // 2. Chapter Parsing Logic
+            
+            // Strategy 1: Mobile Select (Chuẩn nhất nếu có)
+            const selectMatch = html.match(/<select[^>]*class="[^"]*select-reading[^"]*"[^>]*>([\s\S]*?)<\/select>/);
+            if (selectMatch) {
+                const optionRegex = /<option[^>]+value="([^"]+)"[^>]*>([^<]+)<\/option>/g;
+                let m;
+                while ((m = optionRegex.exec(selectMatch[1])) !== null) {
+                    let chapUrl = m[1];
+                    if (!chapUrl.startsWith('http')) chapUrl = `https://truyenqq.com.vn${chapUrl}`;
+                    chapters.push({
+                        url: chapUrl,
+                        title: m[2].trim(),
+                        number: parseFloat(m[2].match(/(\d+(\.\d+)?)/)?.[0] || '0')
                     });
-                } else res.json({message:'Saved'});
-            });
-        });
+                }
+            }
+
+            // Strategy 2: URL Pattern Scan (Chiến thuật mới - Bỏ qua cấu trúc HTML, quét thẳng vào href)
+            // Tìm tất cả các link có dạng: .../chap-123 hoặc .../chapter-123
+            if (chapters.length === 0) {
+                 // Regex giải thích: Tìm href có chứa "chap-" hoặc "chapter-" hoặc "chuong-" theo sau là số
+                 const urlPatternRegex = /<a[^>]+href=["']([^"']*(?:chapter|chap|chuong)-(\d+(\.\d+)?)[^"']*)["'][^>]*>(.*?)<\/a>/gi;
+                 let m;
+                 while ((m = urlPatternRegex.exec(html)) !== null) {
+                    let href = m[1];
+                    let numberStr = m[2]; // Số chapter lấy từ URL (chuẩn hơn lấy từ text)
+                    let rawText = m[4];
+
+                    // Clean URL Proxy
+                    if (href.includes('googleusercontent') && href.includes('u=')) {
+                         const u = new URL(href);
+                         if (u.searchParams.get('u')) href = u.searchParams.get('u');
+                    } else if (!href.startsWith('http')) {
+                         href = `https://truyenqq.com.vn${href}`;
+                    }
+
+                    // Tự tạo title nếu text bị lỗi
+                    let text = rawText.replace(/<[^>]+>/g, '').trim();
+                    if (!text) text = `Chapter ${numberStr}`;
+
+                    // Loại bỏ trùng lặp
+                    if (!chapters.some(c => c.url === href)) {
+                        chapters.push({
+                            url: href,
+                            title: text,
+                            number: parseFloat(numberStr)
+                        });
+                    }
+                 }
+            }
+
+            if (chapters.length === 0) {
+                // Debug info: Trả về một đoạn HTML ngắn để xem lỗi là gì
+                const debugHtml = html.substring(0, 500).replace(/</g, '&lt;');
+                throw new Error(`Không tìm thấy chapter. HTML Preview: ${debugHtml}...`);
+            }
+
+            res.json({ success: true, data: { title, coverImage, description, chapters: chapters.reverse() } });
+        } catch (error) {
+            console.error("Leech Scan Error:", error);
+            res.status(500).json({ error: 'Lỗi: ' + error.message });
+        }
     });
-    api.delete('/chapters/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM chapters WHERE id=?',[req.params.id],res, ()=>res.json({message:'Deleted'})));
-    api.get('/chapters/:id/pages', (req, res) => safeQuery('SELECT * FROM chapter_pages WHERE chapterId=? ORDER BY pageNumber ASC', [req.params.id], res, r=>res.json(r)));
 
-    // Genres
-    api.get('/genres', (req, res) => safeQuery('SELECT * FROM genres', [], res, r => res.json(r.map(g=>({...g, isShowHome:g.isShowHome===1})))));
-    api.post('/genres', authMiddleware, (req,res) => { const {id,name,slug,isShowHome,metaTitle,metaDescription,metaKeywords}=req.body; const s=isShowHome?1:0; safeQuery('INSERT INTO genres (id,name,slug,isShowHome,metaTitle,metaDescription,metaKeywords) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=?,slug=?,isShowHome=?,metaTitle=?,metaDescription=?,metaKeywords=?',[id,name,slug,s,metaTitle,metaDescription,metaKeywords,name,slug,s,metaTitle,metaDescription,metaKeywords],res,()=>res.json({message:'Saved'})); });
-    api.delete('/genres/:id', authMiddleware, (req,res) => safeQuery('DELETE FROM genres WHERE id=?',[req.params.id],res,()=>res.json({message:'Deleted'})));
+    api.post('/leech/chapter', authMiddleware, async (req, res) => {
+        const { url } = req.body;
+        try {
+            const html = await fetchUrl(url);
+            
+            const images = [];
+            // Regex bắt cả data-src và src phòng trường hợp proxy load sẵn
+            const imgRegex = /<img[^>]+(data-src|src)="([^">]+)"[^>]*class="[^"]*lazy[^"]*"/g;
+            let match;
+            while ((match = imgRegex.exec(html)) !== null) {
+                let imgUrl = match[2];
+                if (imgUrl.includes('googleusercontent') && imgUrl.includes('u=')) {
+                     const u = new URL(imgUrl);
+                     if (u.searchParams.get('u')) imgUrl = u.searchParams.get('u');
+                }
+                if (!images.includes(imgUrl)) images.push(imgUrl);
+            }
 
-    // Ads
-    api.get('/ads', (req, res) => safeQuery('SELECT * FROM ads', [], res, r => res.json(r.map(a=>({...a, isActive:a.isActive===1})))));
-    api.post('/ads', authMiddleware, (req,res) => { const {id,position,imageUrl,linkUrl,isActive,title}=req.body; const a=isActive?1:0; safeQuery('INSERT INTO ads (id,position,imageUrl,linkUrl,isActive,title) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE position=?,imageUrl=?,linkUrl=?,isActive=?,title=?',[id,position,imageUrl,linkUrl,a,title,position,imageUrl,linkUrl,a,title],res,()=>res.json({message:'Saved'})); });
-    api.delete('/ads/:id', authMiddleware, (req,res) => safeQuery('DELETE FROM ads WHERE id=?',[req.params.id],res,()=>res.json({message:'Deleted'})));
+            if(images.length === 0) {
+                // Fallback: Tìm mọi ảnh trong div chapter-content
+                const contentMatch = html.match(/<div class="chapter_content">([\s\S]*?)<\/div>/);
+                if (contentMatch) {
+                     const simpleImgRegex = /src="([^"]+)"/g;
+                     let m;
+                     while ((m = simpleImgRegex.exec(contentMatch[1])) !== null) {
+                         images.push(m[1]);
+                     }
+                }
+            }
+            
+            // Fallback 2: Quét toàn bộ ảnh lớn (trên 50kb logic - khó check nhưng có thể check đuôi)
+            if (images.length === 0) {
+                 const anyImgRegex = /<img[^>]+src="([^"]+)"/g;
+                 let m;
+                 while ((m = anyImgRegex.exec(html)) !== null) {
+                     const u = m[1];
+                     if (u.includes('truyenqq') && !u.includes('logo') && !u.includes('icon')) {
+                         images.push(u);
+                     }
+                 }
+            }
 
-    // Theme & Settings
-    api.get('/theme', (req,res) => safeQuery('SELECT theme_config FROM settings WHERE id=1',[],res,(r)=>res.json(r.length&&r[0].theme_config ? (typeof r[0].theme_config==='string'?JSON.parse(r[0].theme_config):r[0].theme_config):{})));
-    api.post('/theme', authMiddleware, (req,res) => { const c=JSON.stringify(req.body); safeQuery('INSERT INTO settings (id,theme_config) VALUES (1,?) ON DUPLICATE KEY UPDATE theme_config=?',[c,c],res,()=>res.json({message:'Saved'})); });
-
-    // Static Pages
-    api.get('/static-pages', (req,res)=>safeQuery('SELECT * FROM static_pages',[],res,(r)=>res.json(r)));
-    api.get('/static-pages/:slug', (req,res)=>safeQuery('SELECT * FROM static_pages WHERE slug=?',[req.params.slug],res,(r)=>{if(r.length===0)return res.status(404).json({message:'Not found'});res.json(r[0])}));
-    api.post('/static-pages', authMiddleware, (req,res)=>{const{slug,title,content,metaTitle,metaDescription,metaKeywords}=req.body; safeQuery('INSERT INTO static_pages (slug,title,content,metaTitle,metaDescription,metaKeywords) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE title=?,content=?,metaTitle=?,metaDescription=?,metaKeywords=?',[slug,title,content,metaTitle,metaDescription,metaKeywords,title,content,metaTitle,metaDescription,metaKeywords],res,()=>res.json({message:'Saved'}));});
-
-    // Users
-    api.get('/users', authMiddleware, (req, res) => safeQuery('SELECT id, username, role, created_at FROM users', [], res, r => res.json(r)));
-    api.post('/users', authMiddleware, (req, res) => { const {id,username,password,role}=req.body; if(!id) { safeQuery('INSERT INTO users (username,password,role) VALUES (?,?,?)',[username,password,role],res,()=>res.json({message:'Saved'})); } else { if(password) safeQuery('UPDATE users SET username=?,password=?,role=? WHERE id=?',[username,password,role,id],res,()=>res.json({message:'Saved'})); else safeQuery('UPDATE users SET username=?,role=? WHERE id=?',[username,role,id],res,()=>res.json({message:'Saved'})); }});
-    api.delete('/users/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM users WHERE id=?',[req.params.id],res,()=>res.json({message:'Deleted'})));
-
-    // Reports - FIX: Use id DESC for robust ordering
-    api.get('/reports', authMiddleware, (req, res) => {
-        // Use simpler query if join fails, but normally LEFT JOIN is safe. 
-        // Changing ORDER BY to 'id DESC' to avoid issues if created_at is missing from old table version
-        const sql = `SELECT r.*, c.title as comicTitle, ch.title as chapterTitle 
-                     FROM reports r 
-                     LEFT JOIN comics c ON r.comicId = c.id 
-                     LEFT JOIN chapters ch ON r.chapterId = ch.id 
-                     ORDER BY r.id DESC`;
-        safeQuery(sql, [], res, r => res.json(r));
+            if(images.length === 0) throw new Error("Không tìm thấy ảnh truyện");
+            res.json({ success: true, images });
+        } catch (error) {
+            console.error("Leech Chapter Error:", error);
+            res.status(500).json({ error: 'Lỗi: ' + error.message });
+        }
     });
-    
-    api.post('/reports', (req, res) => {
-        safeQuery('INSERT INTO reports (comicId, chapterId, message) VALUES (?,?,?)', 
-            [req.body.comicId, req.body.chapterId, req.body.message], 
-            res, 
-            () => res.json({message: 'Sent'})
-        );
-    });
-    
-    api.delete('/reports/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM reports WHERE id=?', [req.params.id], res, () => res.json({message: 'Deleted'})));
-    
-    // Comments (Placeholder)
-    api.get('/comments', (req, res) => res.json([]));
 
     app.use('/v1', api);
 
-    // Serve Frontend
     const distPath = path.join(__dirname, 'dist');
     if (fs.existsSync(distPath)) {
         app.use(express.static(distPath));
@@ -302,14 +366,4 @@ const startServer = () => {
     app.listen(PORT, () => console.log(`✅ Server running on ${PORT}`));
 };
 
-// --- TRY START SERVER OR FALLBACK ---
-try {
-    startServer();
-} catch (err) {
-    logError(err);
-    // FALLBACK HTTP SERVER
-    http.createServer((req, res) => {
-        res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(`<h1>Server Error</h1><p>${err.message}</p>`);
-    }).listen(PORT, () => console.log("⚠️ Fallback server running"));
-}
+try { startServer(); } catch (err) { logError(err); http.createServer((q, r) => { r.end(`Server Error: ${err.message}`); }).listen(PORT); }
