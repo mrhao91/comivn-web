@@ -10,7 +10,8 @@ import SEOHead from '../components/SEOHead';
 import Header from '../components/Header'; // Import Global Header
 
 const Reader: React.FC = () => {
-  const { chapterId } = useParams<{ chapterId: string }>(); // chapterId here can be "slug-chap-1" or "comicId-chapterId"
+  // Support both new SEO URL (/doc/:slug/:chapterSlug e.g. chap-1) and Legacy URL (/doc/:chapterId)
+  const { chapterId, slug, chapterSlug } = useParams<{ chapterId?: string; slug?: string; chapterSlug?: string }>();
   const navigate = useNavigate();
   const [pages, setPages] = useState<Page[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +21,7 @@ const Reader: React.FC = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-        if (!chapterId || chapterId === 'undefined') {
+        if (!chapterId && (!slug || !chapterSlug)) {
             setError("Không tìm thấy chương truyện này.");
             setLoading(false);
             return;
@@ -31,22 +32,32 @@ const Reader: React.FC = () => {
 
         try {
             let comicSlugOrId = '';
-            let chapterNumber = -1;
+            let targetChapterNumber = -1;
             let targetChapterId = '';
 
-            // 1. Kiểm tra xem URL có phải dạng SEO friendly không: "ten-truyen-chap-1"
-            // Regex bắt: (Mọi thứ trước -chap-)-(số chapter)
-            const slugMatch = chapterId.match(/(.*)-chap-(\d+(\.\d+)?)$/);
+            if (slug && chapterSlug) {
+                // New SEO Friendly URL: /doc/:slug/chap-1
+                // We need to parse "chap-1" to get the number 1
+                const match = chapterSlug.match(/^chap-(\d+(\.\d+)?)$/);
+                if (match) {
+                    comicSlugOrId = slug;
+                    targetChapterNumber = parseFloat(match[1]);
+                } else {
+                    setError("Đường dẫn chương không hợp lệ.");
+                    setLoading(false);
+                    return;
+                }
+            } else if (chapterId) {
+                // Legacy URL handling
+                const slugMatch = chapterId.match(/(.*)-chap-(\d+(\.\d+)?)$/);
 
-            if (slugMatch) {
-                // Dạng SEO: slug-chap-number
-                comicSlugOrId = slugMatch[1];
-                chapterNumber = parseFloat(slugMatch[2]);
-            } else {
-                // Dạng Cũ (Legacy): comicId-chapterId hoặc chỉ chapterId
-                // Cố gắng tách comicId từ chuỗi cũ nếu có thể, hoặc dùng ID trực tiếp
-                comicSlugOrId = chapterId.includes('-chapter') ? chapterId.split('-chapter')[0] : chapterId.split('-')[0];
-                targetChapterId = chapterId;
+                if (slugMatch) {
+                    comicSlugOrId = slugMatch[1];
+                    targetChapterNumber = parseFloat(slugMatch[2]);
+                } else {
+                    comicSlugOrId = chapterId.includes('-chapter') ? chapterId.split('-chapter')[0] : chapterId.split('-')[0];
+                    targetChapterId = chapterId;
+                }
             }
 
             // 2. Lấy thông tin truyện dựa trên Slug hoặc ID
@@ -58,9 +69,9 @@ const Reader: React.FC = () => {
                 // 3. Tìm Chapter Object
                 let foundChapter: Chapter | undefined;
 
-                if (chapterNumber !== -1) {
+                if (targetChapterNumber !== -1) {
                     // Tìm theo số chapter (cho URL SEO)
-                    foundChapter = comicData.chapters.find(c => c.number === chapterNumber);
+                    foundChapter = comicData.chapters.find(c => c.number === targetChapterNumber);
                 } else {
                     // Tìm theo ID (cho URL Cũ)
                     foundChapter = comicData.chapters.find(c => c.id === targetChapterId);
@@ -72,9 +83,8 @@ const Reader: React.FC = () => {
                     const pageData = await getChapterPages(foundChapter.id);
                     setPages(pageData);
                 } else {
-                    // Fallback: Nếu không tìm thấy chapter trong list comic (có thể data chưa sync), thử gọi API pages trực tiếp với ID gốc
-                    // (Chỉ áp dụng cho trường hợp ID cũ, trường hợp SEO slug thì chịu nếu không khớp số)
-                    if (chapterNumber === -1) {
+                    // Fallback: Nếu không tìm thấy chapter trong list comic
+                    if (targetChapterNumber === -1 && targetChapterId) {
                          const pageData = await getChapterPages(targetChapterId);
                          if (pageData && pageData.length > 0) {
                              setPages(pageData);
@@ -89,7 +99,7 @@ const Reader: React.FC = () => {
                              setError("Chương này không tồn tại.");
                          }
                     } else {
-                        setError(`Không tìm thấy Chapter ${chapterNumber} của truyện này.`);
+                        setError(`Không tìm thấy Chapter ${targetChapterNumber} của truyện này.`);
                     }
                 }
             } else {
@@ -105,15 +115,14 @@ const Reader: React.FC = () => {
     };
 
     fetchData();
-  }, [chapterId]);
+  }, [chapterId, slug, chapterSlug]);
 
-  // Helper chuyển đổi sang URL SEO
+  // Helper chuyển đổi sang URL SEO Mới
   const getChapterUrl = (c: Chapter, comicData?: Comic) => {
       const targetComic = comicData || comic;
       if (!targetComic) return `/doc/${c.id}`;
-      // Ưu tiên dùng slug, nếu không có thì dùng ID
-      const slug = targetComic.slug || targetComic.id;
-      return `/doc/${slug}-chap-${c.number}`;
+      const s = targetComic.slug || targetComic.id;
+      return `/doc/${s}/chap-${c.number}`;
   };
 
   const handleChapterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -131,10 +140,6 @@ const Reader: React.FC = () => {
 
       // Danh sách chapter thường sort giảm dần (Mới nhất -> Cũ nhất)
       // Next (Chap sau) = Số lớn hơn = Index NHỎ hơn (nếu sort DESC)
-      // Tuy nhiên logic nút "Sau" thường người dùng hiểu là Chap tiếp theo (Chap 1 -> Chap 2)
-      // ComiVN data seed: chapters sort DESC (Chap 10, 9, ... 1).
-      // Chap hiện tại: 9 (index 1). "Chap Sau" là 10 (index 0). "Chap Trước" là 8 (index 2).
-      
       let newIndex = direction === 'next' ? currentIndex - 1 : currentIndex + 1; 
       
       if (newIndex >= 0 && newIndex < comic.chapters.length) {

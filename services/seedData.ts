@@ -18,9 +18,13 @@ export const DEFAULT_THEME: ThemeConfig = {
         { label: 'Liên hệ', url: '/p/lien-he' }
     ],
     siteName: 'ComiVN',
+    favicon: '',
     homeMetaTitle: 'ComiVN - Đọc Truyện Tranh Online Hay Nhất',
     homeMetaDescription: 'Website đọc truyện tranh online miễn phí chất lượng cao.',
-    homeMetaKeywords: 'truyen tranh, manga, ngon tinh'
+    homeMetaKeywords: 'truyen tranh, manga, ngon tinh',
+    categoriesMetaTitle: 'Danh Sách Thể Loại Truyện - ComiVN',
+    categoriesMetaDescription: 'Khám phá kho truyện tranh đa dạng thể loại tại ComiVN.',
+    categoriesMetaKeywords: 'the loai truyen, truyen hanh dong, truyen ngon tinh'
 };
 
 // Dữ liệu User mặc định

@@ -107,9 +107,9 @@ const ComicDetail: React.FC = () => {
   const totalRecPages = Math.ceil(relatedComics.length / REC_ITEMS_PER_PAGE);
   const currentRecs = relatedComics.slice(recPage * REC_ITEMS_PER_PAGE, (recPage + 1) * REC_ITEMS_PER_PAGE);
 
-  // Helper tạo link chapter SEO friendly
+  // Helper tạo link chapter SEO friendly mới: /doc/slug/chap-number
   const getChapterLink = (chapterNum: number) => {
-      return `/doc/${comic.slug || comic.id}-chap-${chapterNum}`;
+      return `/doc/${comic.slug || comic.id}/chap-${chapterNum}`;
   };
 
   // Logic hiển thị mô tả

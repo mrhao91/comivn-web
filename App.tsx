@@ -1,3 +1,4 @@
+
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Outlet, Navigate, useParams } from 'react-router-dom';
 import Header from './components/Header';
@@ -69,6 +70,17 @@ const App: React.FC = () => {
         if (theme.fontFamily === 'serif') fontStack = "Georgia, Cambria, 'Times New Roman', Times, serif";
         if (theme.fontFamily === 'mono') fontStack = "'Courier New', Courier, monospace";
         root.style.setProperty('--font-family', fontStack);
+
+        // Update Favicon
+        if (theme.favicon) {
+            let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+            if (!link) {
+                link = document.createElement('link');
+                link.rel = 'icon';
+                document.getElementsByTagName('head')[0].appendChild(link);
+            }
+            link.href = theme.favicon;
+        }
     };
     loadTheme();
   }, []);
@@ -82,7 +94,6 @@ const App: React.FC = () => {
             <Route path="/categories" element={<Categories />} />
             <Route path="/truyen/:id" element={<ComicDetail />} />
             <Route path="/p/:slug" element={<StaticPage />} />
-            <Route path="/login" element={<Login />} />
             
             {/* Redirect Legacy Routes (Fix lỗi URL cũ) */}
             <Route path="/comic/:id" element={<RedirectComic />} />
@@ -91,8 +102,14 @@ const App: React.FC = () => {
             <Route path="*" element={<NotFound />} />
           </Route>
 
-          {/* === STANDALONE ROUTES === */}
+          {/* === STANDALONE ROUTES (No Header/Footer) === */}
+          <Route path="/login" element={<Login />} />
+          
+          {/* Reader Routes: Optimized first, then legacy catch-all */}
+          {/* Use :chapterSlug to capture "chap-1" because React Router v6 doesn't support partial dynamic segments like chap-:num */}
+          <Route path="/doc/:slug/:chapterSlug" element={<Reader />} />
           <Route path="/doc/:chapterId" element={<Reader />} />
+          
           {/* Redirect Legacy Reader */}
           <Route path="/read/:id" element={<RedirectReader />} />
           

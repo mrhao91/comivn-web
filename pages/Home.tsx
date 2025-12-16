@@ -64,9 +64,9 @@ const Home: React.FC = () => {
         <div className="relative w-full h-[50vh] md:h-[60vh] overflow-hidden mb-10 group">
             {sliderComics.map((comic, index) => {
                 const hasChapters = comic.chapters && comic.chapters.length > 0;
-                // Update to SEO Friendly URL: slug-chap-number
+                // Update to SEO Friendly URL: /doc/slug/chap-number
                 const readLink = hasChapters 
-                    ? `/doc/${comic.slug || comic.id}-chap-${comic.chapters[0].number}` 
+                    ? `/doc/${comic.slug || comic.id}/chap-${comic.chapters[0].number}` 
                     : `/truyen/${comic.slug || comic.id}`;
                 const readLabel = hasChapters ? "Đọc Ngay" : "Xem Ngay";
 

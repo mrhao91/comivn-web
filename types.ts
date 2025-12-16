@@ -83,10 +83,20 @@ export interface ThemeConfig {
     headerMenu?: { label: string; url: string }[];
     footerMenu?: { label: string; url: string }[];
     footerContent?: string;
+    
+    // General Info
     siteName?: string;
+    favicon?: string; // New: Favicon
+
+    // Home Page SEO
     homeMetaTitle?: string;
     homeMetaDescription?: string;
     homeMetaKeywords?: string;
+
+    // Categories Page SEO
+    categoriesMetaTitle?: string;
+    categoriesMetaDescription?: string;
+    categoriesMetaKeywords?: string;
 }
 
 export interface User {

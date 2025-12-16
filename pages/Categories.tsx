@@ -1,28 +1,39 @@
+
 import React, { useEffect, useState } from 'react';
 import { DataProvider } from '../services/dataProvider';
-import { Comic, Genre } from '../types';
+import { Comic, Genre, ThemeConfig } from '../types';
 import ComicCard from '../components/ComicCard';
 import { Tags, Filter } from 'lucide-react';
+import SEOHead from '../components/SEOHead';
+import { DEFAULT_THEME } from '../services/seedData';
 
 const Categories: React.FC = () => {
   const [genres, setGenres] = useState<Genre[]>([]);
   const [comics, setComics] = useState<Comic[]>([]);
+  const [theme, setTheme] = useState<ThemeConfig>(DEFAULT_THEME);
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
         setLoading(true);
-        const [gData, cData] = await Promise.all([
+        const [gData, cData, tData] = await Promise.all([
             DataProvider.getGenres(),
-            DataProvider.getComics()
+            DataProvider.getComics(),
+            DataProvider.getTheme()
         ]);
         setGenres(gData);
         setComics(cData);
+        if (tData) setTheme({ ...DEFAULT_THEME, ...tData });
         
-        // Select first genre by default if available
-        if (gData.length > 0 && !selectedGenre) {
-            setSelectedGenre(gData[0].name);
+        // Check query param for genre
+        const params = new URLSearchParams(window.location.search);
+        const genreParam = params.get('genre');
+        if (genreParam) {
+            setSelectedGenre(genreParam);
+        } else if (gData.length > 0 && !selectedGenre) {
+            // Default to first if needed, or null for All
+            // setSelectedGenre(gData[0].name); 
         }
         setLoading(false);
     };
@@ -33,8 +44,31 @@ const Categories: React.FC = () => {
     ? comics.filter(c => c.genres.includes(selectedGenre)) 
     : comics;
 
+  const currentGenreObj = genres.find(g => g.name === selectedGenre);
+
+  // SEO Logic
+  let pageTitle, pageDesc, pageKeywords;
+  
+  if (selectedGenre && currentGenreObj) {
+      pageTitle = currentGenreObj.metaTitle || `Truyện ${selectedGenre} - ${theme.siteName || 'ComiVN'}`;
+      pageDesc = currentGenreObj.metaDescription || `Tổng hợp truyện tranh thể loại ${selectedGenre} hay nhất.`;
+      pageKeywords = currentGenreObj.metaKeywords || `truyen ${selectedGenre}, truyen tranh`;
+  } else {
+      pageTitle = theme.categoriesMetaTitle || 'Danh Sách Thể Loại - ComiVN';
+      pageDesc = theme.categoriesMetaDescription || 'Khám phá hàng ngàn đầu truyện hấp dẫn đa dạng thể loại.';
+      pageKeywords = theme.categoriesMetaKeywords || 'the loai truyen, truyen tranh online';
+  }
+
   return (
     <div className="min-h-screen pb-12">
+        {/* SEO */}
+        <SEOHead 
+            title={pageTitle}
+            description={pageDesc}
+            keywords={pageKeywords}
+            url={window.location.href}
+        />
+
         {/* Header */}
         <div className="bg-gradient-to-b from-card to-darker py-10 border-b border-white/5">
             <div className="container mx-auto px-4">
@@ -47,7 +81,6 @@ const Categories: React.FC = () => {
         </div>
 
         <div className="container mx-auto px-4 mt-8 flex flex-col md:flex-row gap-8">
-            {/* Sidebar / Filter (Horizontal on mobile, vertical on desktop) */}
             <div className="w-full md:w-64 flex-shrink-0">
                 <div className="bg-card rounded-xl border border-white/10 p-4 sticky top-24">
                     <h3 className="font-bold text-white mb-4 flex items-center gap-2">
@@ -73,7 +106,6 @@ const Categories: React.FC = () => {
                 </div>
             </div>
 
-            {/* Content */}
             <div className="flex-grow">
                  <div className="flex items-center justify-between mb-6">
                     <h2 className="text-xl font-bold text-white">

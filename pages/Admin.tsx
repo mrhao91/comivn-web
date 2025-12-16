@@ -3,9 +3,22 @@ import React, { useEffect, useState, useRef } from 'react';
 import { DataProvider } from '../services/dataProvider';
 import { Comic, Genre, AdConfig, User, ThemeConfig, Report, StaticPage, Chapter, Page, MediaFile } from '../types';
 import SimpleEditor from '../components/SimpleEditor';
-import { Plus, Trash2, Edit, Save, LayoutDashboard, Book, Users, FileText, Settings, Image as ImageIcon, MessageSquare, AlertTriangle, Check, X, RefreshCw, Upload, Globe, Database, Link as LinkIcon, Menu, List, Copy, FolderOpen } from 'lucide-react';
+import { Plus, Trash2, Edit, Save, LayoutDashboard, Book, Users, FileText, Settings, Image as ImageIcon, MessageSquare, AlertTriangle, Check, X, RefreshCw, Upload, Globe, Database, Link as LinkIcon, Menu, List, Copy, FolderOpen, Info } from 'lucide-react';
 import { summarizeComic } from '../services/geminiService';
 import { DEFAULT_THEME, SEED_STATIC_PAGES } from '../services/seedData';
+
+// Gợi ý kích thước cho từng vị trí quảng cáo
+const AD_DIMENSIONS: Record<string, string> = {
+    'home_header': 'Rộng: 1200px | Cao: 300px - 400px',
+    'home_middle': 'Rộng: 1200px | Cao: 250px',
+    'home_bottom': 'Rộng: 1200px | Cao: 250px',
+    'detail_sidebar': 'Rộng: 300px | Cao: 500px - 600px (Dọc)',
+    'reader_top': 'Rộng: 1000px | Cao: 150px - 250px',
+    'reader_middle': 'Rộng: 800px | Cao: 400px - 600px (Lớn)',
+    'reader_bottom': 'Rộng: 1000px | Cao: 150px - 250px',
+    'reader_float_left': 'Rộng: 300px - 400px | Cao: 600px (Cố định)',
+    'reader_float_right': 'Rộng: 300px - 400px | Cao: 600px (Cố định)',
+};
 
 const Admin: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'comics' | 'genres' | 'settings' | 'users' | 'ads' | 'reports' | 'static' | 'media'>('comics');
@@ -30,7 +43,7 @@ const Admin: React.FC = () => {
     
     // Comic Form
     const [comicForm, setComicForm] = useState<Comic>({
-        id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false
+        id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false, slug: '', metaTitle: '', metaDescription: '', metaKeywords: ''
     });
 
     // Chapter Form
@@ -93,7 +106,7 @@ const Admin: React.FC = () => {
     };
 
     // --- UPLOAD HELPER ---
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetField: 'comic' | 'ad') => {
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetField: 'comic' | 'ad' | 'theme-favicon') => {
         if (e.target.files && e.target.files[0]) {
             setUploading(true);
             try {
@@ -103,6 +116,8 @@ const Admin: React.FC = () => {
                         setComicForm(prev => ({ ...prev, coverImage: url }));
                     } else if (targetField === 'ad') {
                         setAdForm(prev => ({ ...prev, imageUrl: url }));
+                    } else if (targetField === 'theme-favicon') {
+                        setThemeConfig(prev => ({ ...prev, favicon: url }));
                     }
                 } else {
                     alert("Upload thất bại. Vui lòng kiểm tra lại server.");
@@ -203,7 +218,7 @@ const Admin: React.FC = () => {
     const handleStartEdit = async (comicId: string) => {
         setLoading(true);
         // Clear previous state first to show empty form/loader
-        setComicForm({ id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false });
+        setComicForm({ id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false, slug: '', metaTitle: '', metaDescription: '', metaKeywords: '' });
         
         try {
             // Lấy dữ liệu chi tiết đầy đủ (bao gồm full chapters) thay vì dùng dữ liệu list
@@ -452,7 +467,7 @@ const Admin: React.FC = () => {
                 <h2 className="text-2xl font-bold text-white">Quản lý Truyện</h2>
                 {!isEditing && (
                     <button onClick={() => {
-                        setComicForm({ id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false });
+                        setComicForm({ id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false, slug: '', metaTitle: '', metaDescription: '', metaKeywords: '' });
                         setIsEditing(true);
                     }} className="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium">
                         <Plus size={18} /> Thêm Truyện
@@ -524,6 +539,61 @@ const Admin: React.FC = () => {
                             <button type="button" onClick={handleAutoSummarize} className="text-xs text-primary hover:underline flex items-center gap-1">✨ AI Tóm tắt</button>
                         </div>
                         <SimpleEditor value={comicForm.description} onChange={val => setComicForm({...comicForm, description: val})} height="150px"/>
+                    </div>
+                    
+                    {/* SEO Configuration */}
+                    <div className="bg-dark/50 p-4 rounded-lg border border-white/5 space-y-3 mt-4 mb-6">
+                        <h5 className="text-sm font-bold text-primary flex items-center gap-2">
+                            <Globe size={16}/> Cấu hình SEO & URL
+                        </h5>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="md:col-span-2">
+                                <label className="text-xs text-slate-400 mb-1 block">URL Slug (Để trống sẽ tự tạo từ tên truyện)</label>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 bg-white/5 px-2 py-2 rounded border border-white/10">/truyen/</span>
+                                    <input 
+                                        type="text" 
+                                        value={comicForm.slug || ''} 
+                                        onChange={e => setComicForm({...comicForm, slug: e.target.value})} 
+                                        className="flex-1 bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary placeholder:text-slate-600"
+                                        placeholder="vd: tieu-de-truyen-khong-dau"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Meta Title (Tiêu đề SEO)</label>
+                                <input 
+                                    type="text" 
+                                    value={comicForm.metaTitle || ''} 
+                                    onChange={e => setComicForm({...comicForm, metaTitle: e.target.value})} 
+                                    className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary placeholder:text-slate-600"
+                                    placeholder="Mặc định: Tên truyện - ComiVN"
+                                />
+                            </div>
+
+                            <div>
+                                 <label className="text-xs text-slate-400 mb-1 block">Meta Keywords (Từ khóa)</label>
+                                <input 
+                                    type="text" 
+                                    value={comicForm.metaKeywords || ''} 
+                                    onChange={e => setComicForm({...comicForm, metaKeywords: e.target.value})} 
+                                    className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary placeholder:text-slate-600"
+                                    placeholder="truyen tranh, manga, action..."
+                                />
+                            </div>
+                            
+                            <div className="md:col-span-2">
+                                <label className="text-xs text-slate-400 mb-1 block">Meta Description (Mô tả SEO)</label>
+                                <textarea 
+                                    value={comicForm.metaDescription || ''} 
+                                    onChange={e => setComicForm({...comicForm, metaDescription: e.target.value})} 
+                                    className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary h-20 resize-none placeholder:text-slate-600"
+                                    placeholder="Mặc định: Tự động lấy từ mô tả truyện..."
+                                />
+                            </div>
+                        </div>
                     </div>
 
                     {/* Action Buttons for Comic */}
@@ -743,17 +813,26 @@ const Admin: React.FC = () => {
                     <h3 className="font-bold text-white mb-4">{adForm.id ? 'Sửa quảng cáo' : 'Thêm quảng cáo'}</h3>
                     <div className="space-y-3">
                         <input type="text" placeholder="Tiêu đề (Ghi nhớ)" value={adForm.title || ''} onChange={e => setAdForm({...adForm, title: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
-                        <select value={adForm.position} onChange={e => setAdForm({...adForm, position: e.target.value as any})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary">
-                            <option value="home_header">Home Header (Trên cùng)</option>
-                            <option value="home_middle">Home Middle (Giữa danh sách)</option>
-                            <option value="home_bottom">Home Bottom (Cuối trang)</option>
-                            <option value="detail_sidebar">Detail Sidebar (Cột phải)</option>
-                            <option value="reader_top">Reader Top (Trên truyện)</option>
-                            <option value="reader_middle">Reader Middle (Giữa chapter)</option>
-                            <option value="reader_bottom">Reader Bottom (Dưới truyện)</option>
-                            <option value="reader_float_left">Reader Float Left (Trôi trái PC)</option>
-                            <option value="reader_float_right">Reader Float Right (Trôi phải PC)</option>
-                        </select>
+                        <div>
+                            <label className="text-xs text-slate-400 mb-1 block">Vị trí hiển thị</label>
+                            <select value={adForm.position} onChange={e => setAdForm({...adForm, position: e.target.value as any})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary">
+                                <option value="home_header">Home Header (Trên cùng)</option>
+                                <option value="home_middle">Home Middle (Giữa danh sách)</option>
+                                <option value="home_bottom">Home Bottom (Cuối trang)</option>
+                                <option value="detail_sidebar">Detail Sidebar (Cột phải)</option>
+                                <option value="reader_top">Reader Top (Trên truyện)</option>
+                                <option value="reader_middle">Reader Middle (Giữa chapter)</option>
+                                <option value="reader_bottom">Reader Bottom (Dưới truyện)</option>
+                                <option value="reader_float_left">Reader Float Left (Trôi trái PC)</option>
+                                <option value="reader_float_right">Reader Float Right (Trôi phải PC)</option>
+                            </select>
+                            <p className="text-[11px] text-yellow-500 mt-1.5 flex items-start gap-1">
+                                <Info size={14} className="mt-0.5 flex-shrink-0" />
+                                <span>
+                                    Kích thước gợi ý: <span className="font-bold text-yellow-400">{AD_DIMENSIONS[adForm.position] || 'Tự do'}</span>
+                                </span>
+                            </p>
+                        </div>
                          <div className="flex gap-2">
                             <input type="text" value={adForm.imageUrl} onChange={e => setAdForm({...adForm, imageUrl: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white focus:border-primary outline-none" placeholder="Link ảnh hoặc upload"/>
                             <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 p-2 rounded text-white flex items-center justify-center transition-colors" title="Upload Ảnh">
@@ -910,43 +989,63 @@ const Admin: React.FC = () => {
                 <h3 className="font-bold text-white mb-6 flex items-center gap-2"><Settings size={20}/> Cấu hình giao diện</h3>
                 
                 <div className="space-y-6">
-                    {/* Basic Colors */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-xs text-slate-400 mb-1 block">Màu chủ đạo (Primary)</label>
-                            <div className="flex gap-2">
-                                <input type="color" value={themeConfig.primaryColor} onChange={e => setThemeConfig({...themeConfig, primaryColor: e.target.value})} className="h-10 w-12 bg-transparent border-0 cursor-pointer"/>
-                                <input type="text" value={themeConfig.primaryColor} onChange={e => setThemeConfig({...themeConfig, primaryColor: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white text-sm"/>
+                    {/* General Info */}
+                    <div className="border-b border-white/10 pb-4 mb-4">
+                        <h4 className="font-bold text-white mb-3">Thông tin chung</h4>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Tên Website</label>
+                                <input type="text" value={themeConfig.siteName || ''} onChange={e => setThemeConfig({...themeConfig, siteName: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
+                            </div>
+                            
+                            <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Favicon (Icon trên tab trình duyệt)</label>
+                                <div className="flex gap-2">
+                                    <input type="text" value={themeConfig.favicon || ''} onChange={e => setThemeConfig({...themeConfig, favicon: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary" placeholder="Link icon..."/>
+                                    <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded text-white flex items-center gap-2 text-sm font-medium transition-colors">
+                                        <input type="file" className="hidden" accept="image/*" ref={fileInputRef} onChange={(e) => handleFileUpload(e, 'theme-favicon')} />
+                                        {uploading && fileInputRef.current ? <RefreshCw size={16} className="animate-spin"/> : <Upload size={16}/>}
+                                        Upload
+                                    </label>
+                                </div>
+                                {themeConfig.favicon && <img src={themeConfig.favicon} alt="favicon" className="mt-2 w-8 h-8 rounded bg-white/10 p-1"/>}
                             </div>
                         </div>
-                        <div>
-                            <label className="text-xs text-slate-400 mb-1 block">Màu phụ (Secondary)</label>
-                            <div className="flex gap-2">
-                                <input type="color" value={themeConfig.secondaryColor} onChange={e => setThemeConfig({...themeConfig, secondaryColor: e.target.value})} className="h-10 w-12 bg-transparent border-0 cursor-pointer"/>
-                                <input type="text" value={themeConfig.secondaryColor} onChange={e => setThemeConfig({...themeConfig, secondaryColor: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white text-sm"/>
+                    </div>
+
+                    {/* Colors & Font */}
+                    <div className="border-b border-white/10 pb-4 mb-4">
+                        <h4 className="font-bold text-white mb-3">Màu sắc & Font chữ</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Màu chủ đạo (Primary)</label>
+                                <div className="flex gap-2">
+                                    <input type="color" value={themeConfig.primaryColor} onChange={e => setThemeConfig({...themeConfig, primaryColor: e.target.value})} className="h-10 w-12 bg-transparent border-0 cursor-pointer"/>
+                                    <input type="text" value={themeConfig.primaryColor} onChange={e => setThemeConfig({...themeConfig, primaryColor: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white text-sm"/>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Màu phụ (Secondary)</label>
+                                <div className="flex gap-2">
+                                    <input type="color" value={themeConfig.secondaryColor} onChange={e => setThemeConfig({...themeConfig, secondaryColor: e.target.value})} className="h-10 w-12 bg-transparent border-0 cursor-pointer"/>
+                                    <input type="text" value={themeConfig.secondaryColor} onChange={e => setThemeConfig({...themeConfig, secondaryColor: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white text-sm"/>
+                                </div>
+                            </div>
+                             <div className="col-span-2">
+                                <label className="text-xs text-slate-400 mb-1 block">Font chữ</label>
+                                <select value={themeConfig.fontFamily} onChange={e => setThemeConfig({...themeConfig, fontFamily: e.target.value as any})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary">
+                                    <option value="sans">Sans-serif (Hiện đại)</option>
+                                    <option value="serif">Serif (Cổ điển)</option>
+                                    <option value="mono">Monospace (Code)</option>
+                                </select>
                             </div>
                         </div>
                     </div>
-                    
-                    {/* Site Info */}
-                    <div>
-                        <label className="text-xs text-slate-400 mb-1 block">Tên Website</label>
-                        <input type="text" value={themeConfig.siteName || ''} onChange={e => setThemeConfig({...themeConfig, siteName: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
-                    </div>
 
-                     <div>
-                        <label className="text-xs text-slate-400 mb-1 block">Font chữ</label>
-                        <select value={themeConfig.fontFamily} onChange={e => setThemeConfig({...themeConfig, fontFamily: e.target.value as any})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary">
-                            <option value="sans">Sans-serif (Hiện đại)</option>
-                            <option value="serif">Serif (Cổ điển)</option>
-                            <option value="mono">Monospace (Code)</option>
-                        </select>
-                    </div>
-
-                    {/* Home Layout */}
-                    <div className="border-t border-white/10 pt-4">
-                        <label className="text-sm font-bold text-white mb-2 block">Bố cục trang chủ</label>
-                        <div className="space-y-2">
+                    {/* Home Page Config */}
+                    <div className="border-b border-white/10 pb-4 mb-4">
+                        <h4 className="font-bold text-white mb-3">Trang Chủ</h4>
+                        <div className="space-y-2 mb-4">
                             <label className="flex items-center gap-2 text-slate-300">
                                 <input type="checkbox" checked={themeConfig.homeLayout.showSlider} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...themeConfig.homeLayout, showSlider: e.target.checked}})} className="accent-primary"/>
                                 Hiển thị Slider nổi bật
@@ -960,10 +1059,46 @@ const Admin: React.FC = () => {
                                 Hiển thị Truyện Mới
                             </label>
                         </div>
+
+                        <div className="bg-dark/50 p-4 rounded-lg border border-white/5 space-y-3">
+                            <h5 className="text-sm font-bold text-primary">SEO Trang Chủ</h5>
+                             <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Meta Title (Tiêu đề SEO)</label>
+                                <input type="text" value={themeConfig.homeMetaTitle || ''} onChange={e => setThemeConfig({...themeConfig, homeMetaTitle: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
+                            </div>
+                             <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Meta Description (Mô tả SEO)</label>
+                                <textarea value={themeConfig.homeMetaDescription || ''} onChange={e => setThemeConfig({...themeConfig, homeMetaDescription: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary h-20 resize-none"/>
+                            </div>
+                             <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Meta Keywords (Từ khóa SEO)</label>
+                                <input type="text" value={themeConfig.homeMetaKeywords || ''} onChange={e => setThemeConfig({...themeConfig, homeMetaKeywords: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary" placeholder="truyen tranh, manga, doc truyen online..."/>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Categories Page Config */}
+                    <div className="border-b border-white/10 pb-4 mb-4">
+                         <h4 className="font-bold text-white mb-3">Trang Thể Loại (Categories)</h4>
+                         <div className="bg-dark/50 p-4 rounded-lg border border-white/5 space-y-3">
+                            <h5 className="text-sm font-bold text-primary">SEO Trang Danh Sách Thể Loại</h5>
+                             <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Meta Title</label>
+                                <input type="text" value={themeConfig.categoriesMetaTitle || ''} onChange={e => setThemeConfig({...themeConfig, categoriesMetaTitle: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
+                            </div>
+                             <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Meta Description</label>
+                                <textarea value={themeConfig.categoriesMetaDescription || ''} onChange={e => setThemeConfig({...themeConfig, categoriesMetaDescription: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary h-20 resize-none"/>
+                            </div>
+                             <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Meta Keywords</label>
+                                <input type="text" value={themeConfig.categoriesMetaKeywords || ''} onChange={e => setThemeConfig({...themeConfig, categoriesMetaKeywords: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white outline-none focus:border-primary"/>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Header Menu Configuration */}
-                    <div className="border-t border-white/10 pt-4">
+                    <div className="border-b border-white/10 pb-4 mb-4">
                          <div className="flex justify-between items-center mb-2">
                              <label className="text-sm font-bold text-white flex items-center gap-2"><Menu size={16}/> Menu Header</label>
                              <button onClick={addMenuItem} className="text-xs flex items-center gap-1 bg-white/10 hover:bg-white/20 text-white px-2 py-1 rounded"><Plus size={12}/> Thêm menu</button>
@@ -993,7 +1128,7 @@ const Admin: React.FC = () => {
                     </div>
 
                     {/* Footer Menu Configuration */}
-                    <div className="border-t border-white/10 pt-4">
+                    <div className="border-b border-white/10 pb-4 mb-4">
                          <div className="flex justify-between items-center mb-2">
                              <label className="text-sm font-bold text-white flex items-center gap-2"><LinkIcon size={16}/> Menu Footer (Liên kết chân trang)</label>
                              <button onClick={addFooterMenuItem} className="text-xs flex items-center gap-1 bg-white/10 hover:bg-white/20 text-white px-2 py-1 rounded"><Plus size={12}/> Thêm link</button>
@@ -1023,7 +1158,7 @@ const Admin: React.FC = () => {
                     </div>
 
                     {/* Footer Content */}
-                    <div className="border-t border-white/10 pt-4">
+                    <div>
                         <label className="text-sm font-bold text-white mb-2 flex items-center gap-2"><LinkIcon size={16}/> Nội dung Footer (Chân trang)</label>
                         <SimpleEditor 
                             value={themeConfig.footerContent || ''} 
