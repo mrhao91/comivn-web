@@ -221,6 +221,7 @@ const Admin: React.FC = () => {
     const [leechError, setLeechError] = useState<string | null>(null);
     const [showManualLeech, setShowManualLeech] = useState(false);
     const [manualHtml, setManualHtml] = useState('');
+    const [leechStorageMode, setLeechStorageMode] = useState<'url' | 'upload'>('url');
 
     useEffect(() => {
         if (!AuthService.isAuthenticated()) { navigate('/login'); return; }
@@ -314,22 +315,46 @@ const Admin: React.FC = () => {
     const handleRunLeech = async () => {
         if (showManualLeech && manualHtml && leechSelectedChapters.length === 0) {
              try {
-                const images = parseChapterImagesHtml(manualHtml, leechUrl || 'https://dilib.vn');
+                let images = parseChapterImagesHtml(manualHtml, leechUrl || 'https://dilib.vn');
                 if (images.length === 0) { showAlert("Không tìm thấy ảnh!"); return; }
                 
                 showPrompt("Nhập tên Chapter:", async (chapterTitle) => {
                     const nextNum = (chapterTitle.match(/\d+(\.\d+)?/) || [])[0] ? parseFloat((chapterTitle.match(/\d+(\.\d+)?/) || [])[0]) : 0;
+                    setIsLeeching(true);
+                    
                     try {
+                        // Nếu chọn upload lên host
+                        if (leechStorageMode === 'upload') {
+                            const uploadedUrls = [];
+                            const token = localStorage.getItem('comivn_auth_token');
+                            for (let i = 0; i < images.length; i++) {
+                                setLeechProgress(`⏳ Đang tải ảnh ${i+1}/${images.length}...`);
+                                try {
+                                    const res = await fetch('/v1/upload-url', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+                                        body: JSON.stringify({ url: images[i] })
+                                    });
+                                    const data = await res.json();
+                                    if (data.success && data.url) uploadedUrls.push(data.url);
+                                    else uploadedUrls.push(images[i]); // Fallback nếu upload lỗi
+                                } catch (e) { uploadedUrls.push(images[i]); }
+                            }
+                            images = uploadedUrls;
+                        }
+
                         await DataProvider.saveChapter({ id: `${comicForm.id || 'new'}-chap-${nextNum}-${Date.now()}`, comicId: comicForm.id, number: nextNum, title: chapterTitle, updatedAt: new Date().toISOString() }, images.map((url, idx) => ({ imageUrl: url, pageNumber: idx + 1 })));
                         showAlert(`✅ Đã lưu ${images.length} ảnh!`);
                         if (comicForm.id) { const updated = await DataProvider.getComicById(comicForm.id); if (updated) setComicForm(updated); }
                         setManualHtml('');
                     } catch(e: any) { showAlert("Lỗi: " + e.message); }
+                    finally { setIsLeeching(false); setLeechProgress(''); }
                 }, "Chapter New");
 
              } catch(e: any) { showAlert("Lỗi: " + e.message); }
              return;
         }
+
         if (leechSelectedChapters.length === 0) { showAlert("Chưa chọn chapter"); return; }
         if (!comicForm.id) {
             const id = `comic-${Date.now()}`;
@@ -339,21 +364,44 @@ const Admin: React.FC = () => {
         setIsLeeching(true); setLeechError(null);
         let successCount = 0;
         const chaptersToLeech = leechSourceChapters.filter(c => leechSelectedChapters.includes(c.url));
+        const token = localStorage.getItem('comivn_auth_token');
+
         for (const chap of chaptersToLeech) {
-            setLeechProgress(`⏳ Leech: ${chap.title}...`);
+            setLeechProgress(`⏳ Đang quét: ${chap.title}...`);
             try {
-                const token = localStorage.getItem('comivn_auth_token');
                 const res = await fetch('/v1/leech', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) }, body: JSON.stringify({ url: chap.url }) });
                 const result = await res.json();
                 if (result.success && result.html) {
-                    const images = parseChapterImagesHtml(result.html, chap.url);
+                    let images = parseChapterImagesHtml(result.html, chap.url);
+                    
                     if (images.length > 0) {
-                        await DataProvider.saveChapter({ id: `${comicForm.id}-chap-${chap.number}-${Date.now()}`, comicId: comicForm.id, number: chap.number, title: chap.title, updatedAt: new Date().toISOString() }, images.map((url, idx) => ({ imageUrl: url, pageNumber: idx + 1 })));
-                        successCount++;
+                        // Nếu chế độ là Upload lên host
+                        if (leechStorageMode === 'upload') {
+                            const uploadedUrls = [];
+                            for (let i = 0; i < images.length; i++) {
+                                setLeechProgress(`⏳ ${chap.title}: Tải ảnh ${i+1}/${images.length}...`);
+                                try {
+                                    const upRes = await fetch('/v1/upload-url', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+                                        body: JSON.stringify({ url: images[i] })
+                                    });
+                                    const upData = await upRes.json();
+                                    if (upData.success && upData.url) uploadedUrls.push(upData.url);
+                                    else uploadedUrls.push(images[i]);
+                                } catch (e) { uploadedUrls.push(images[i]); }
+                            }
+                            images = uploadedUrls;
+                        }
+
+                        if (images.length > 0) {
+                            await DataProvider.saveChapter({ id: `${comicForm.id}-chap-${chap.number}-${Date.now()}`, comicId: comicForm.id, number: chap.number, title: chap.title, updatedAt: new Date().toISOString() }, images.map((url, idx) => ({ imageUrl: url, pageNumber: idx + 1 })));
+                            successCount++;
+                        }
                     }
                 }
             } catch (e) {}
-            await new Promise(r => setTimeout(r, 1500));
+            await new Promise(r => setTimeout(r, 1000));
         }
         setLeechProgress(`✅ Hoàn tất! Thành công: ${successCount}`);
         setIsLeeching(false);
@@ -411,14 +459,28 @@ const Admin: React.FC = () => {
                     <div className="mb-4"><label className="text-xs text-slate-400 mb-1 block">Thể loại</label><div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 bg-dark rounded border border-white/10">{genres.map(g => (<label key={g.id} className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={comicForm.genres.includes(g.name)} onChange={e => { const newGenres = e.target.checked ? [...comicForm.genres, g.name] : comicForm.genres.filter(name => name !== g.name); setComicForm({...comicForm, genres: newGenres}); }} className="accent-primary"/>{g.name}</label>))}</div></div>
                     <div className="mb-4"><div className="flex justify-between items-center mb-1"><label className="text-xs text-slate-400">Mô tả</label><button type="button" onClick={handleAutoSummarize} className="text-xs text-primary hover:underline">✨ AI Tóm tắt</button></div><SimpleEditor value={comicForm.description} onChange={val => setComicForm({...comicForm, description: val})} height="150px"/></div>
                     <div className="bg-dark/50 p-4 rounded-lg border border-white/5 space-y-3 mt-4 mb-6"><h5 className="text-sm font-bold text-primary flex items-center gap-2"><Globe size={16}/> SEO</h5><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div className="md:col-span-2"><label className="text-xs text-slate-400 mb-1 block">URL Slug</label><input type="text" value={comicForm.slug || ''} onChange={e => setComicForm({...comicForm, slug: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div><label className="text-xs text-slate-400 mb-1 block">Meta Title</label><input type="text" value={comicForm.metaTitle || ''} onChange={e => setComicForm({...comicForm, metaTitle: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div><label className="text-xs text-slate-400 mb-1 block">Meta Keywords</label><input type="text" value={comicForm.metaKeywords || ''} onChange={e => setComicForm({...comicForm, metaKeywords: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div className="md:col-span-2"><label className="text-xs text-slate-400 mb-1 block">Meta Description</label><textarea value={comicForm.metaDescription || ''} onChange={e => setComicForm({...comicForm, metaDescription: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white h-20"/></div></div></div>
-                    <div className="bg-gradient-to-br from-indigo-900/30 to-purple-900/30 border border-indigo-500/20 p-4 rounded-lg mb-6"><div className="flex justify-between items-start mb-2"><h3 className="font-bold text-white flex items-center gap-2"><Download size={18}/> Leech Truyện</h3><button onClick={() => setShowManualLeech(!showManualLeech)} className="text-xs bg-indigo-500/20 text-indigo-200 px-2 py-1 rounded flex items-center gap-1 border border-indigo-500/30"><Code size={12}/> {showManualLeech ? "Ẩn HTML" : "Nhập HTML"}</button></div>{leechError && <div className="mb-3 p-3 bg-red-500/20 text-red-300 text-sm">{leechError}</div>}{showManualLeech ? (<div className="mb-3"><textarea value={manualHtml} onChange={e => setManualHtml(e.target.value)} className="w-full h-32 bg-dark border border-white/10 rounded p-2 text-xs font-mono text-slate-300" placeholder="HTML..."/><div className="mt-2 flex justify-end gap-2"><button onClick={leechSourceChapters.length > 0 ? handleRunLeech : handleScanLeech} disabled={!manualHtml} className="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold">{leechSourceChapters.length > 0 ? "Tìm ảnh" : "Phân tích"}</button></div></div>) : (<div className="flex gap-2 mb-3"><input type="text" placeholder="Link truyện..." value={leechUrl} onChange={e => setLeechUrl(e.target.value)} className="flex-1 bg-dark border border-white/10 rounded px-3 py-2 text-sm text-white"/><button onClick={handleScanLeech} disabled={isScanning} className="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold min-w-[80px]">{isScanning ? '...' : 'Quét'}</button></div>)}{leechSourceChapters.length > 0 && !showManualLeech && (<div className="space-y-3 pt-3 mt-3 border-t border-white/10"><div className="max-h-40 overflow-y-auto bg-dark border border-white/10 rounded p-2"><div className="flex justify-between items-center mb-2 px-1"><label className="text-xs text-slate-400 flex items-center gap-2"><input type="checkbox" onChange={e => setLeechSelectedChapters(e.target.checked ? leechSourceChapters.map(c => c.url) : [])} checked={leechSelectedChapters.length === leechSourceChapters.length && leechSourceChapters.length > 0}/> Tất cả</label><span className="text-xs text-indigo-400 font-bold">{leechSelectedChapters.length} chọn</span></div><div className="grid grid-cols-3 gap-1">{leechSourceChapters.map((c, idx) => (<label key={idx} className="flex items-center gap-2 text-xs p-1 hover:bg-white/5 rounded truncate"><input type="checkbox" checked={leechSelectedChapters.includes(c.url)} onChange={e => { if (e.target.checked) setLeechSelectedChapters(prev => [...prev, c.url]); else setLeechSelectedChapters(prev => prev.filter(u => u !== c.url)); }}/> {c.title}</label>))}</div></div><button onClick={handleRunLeech} disabled={isLeeching || leechSelectedChapters.length === 0} className="w-full bg-green-600 text-white py-2 rounded font-bold flex items-center justify-center gap-2">{isLeeching ? `Đang xử lý...` : `Leech Ngay`}</button>{leechProgress && <div className="text-xs text-center text-slate-300">{leechProgress}</div>}</div>)}</div>
+                    <div className="bg-gradient-to-br from-indigo-900/30 to-purple-900/30 border border-indigo-500/20 p-4 rounded-lg mb-6"><div className="flex justify-between items-start mb-2"><h3 className="font-bold text-white flex items-center gap-2"><Download size={18}/> Leech Truyện</h3><button onClick={() => setShowManualLeech(!showManualLeech)} className="text-xs bg-indigo-500/20 text-indigo-200 px-2 py-1 rounded flex items-center gap-1 border border-indigo-500/30"><Code size={12}/> {showManualLeech ? "Ẩn HTML" : "Nhập HTML"}</button></div>{leechError && <div className="mb-3 p-3 bg-red-500/20 text-red-300 text-sm">{leechError}</div>}{showManualLeech ? (<div className="mb-3"><textarea value={manualHtml} onChange={e => setManualHtml(e.target.value)} className="w-full h-32 bg-dark border border-white/10 rounded p-2 text-xs font-mono text-slate-300" placeholder="HTML..."/><div className="mt-2 flex justify-end gap-2"><button onClick={leechSourceChapters.length > 0 ? handleRunLeech : handleScanLeech} disabled={!manualHtml} className="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold">{leechSourceChapters.length > 0 ? "Tìm ảnh" : "Phân tích"}</button></div></div>) : (<div className="flex gap-2 mb-3"><input type="text" placeholder="Link truyện..." value={leechUrl} onChange={e => setLeechUrl(e.target.value)} className="flex-1 bg-dark border border-white/10 rounded px-3 py-2 text-sm text-white"/><button onClick={handleScanLeech} disabled={isScanning} className="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold min-w-[80px]">{isScanning ? '...' : 'Quét'}</button></div>)}{leechSourceChapters.length > 0 && !showManualLeech && (<div className="space-y-3 pt-3 mt-3 border-t border-white/10"><div className="max-h-40 overflow-y-auto bg-dark border border-white/10 rounded p-2"><div className="flex justify-between items-center mb-2 px-1"><label className="text-xs text-slate-400 flex items-center gap-2"><input type="checkbox" onChange={e => setLeechSelectedChapters(e.target.checked ? leechSourceChapters.map(c => c.url) : [])} checked={leechSelectedChapters.length === leechSourceChapters.length && leechSourceChapters.length > 0}/> Tất cả</label><span className="text-xs text-indigo-400 font-bold">{leechSelectedChapters.length} chọn</span></div><div className="grid grid-cols-3 gap-1">{leechSourceChapters.map((c, idx) => (<label key={idx} className="flex items-center gap-2 text-xs p-1 hover:bg-white/5 rounded truncate"><input type="checkbox" checked={leechSelectedChapters.includes(c.url)} onChange={e => { if (e.target.checked) setLeechSelectedChapters(prev => [...prev, c.url]); else setLeechSelectedChapters(prev => prev.filter(u => u !== c.url)); }}/> {c.title}</label>))}</div></div>
+                    <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-2">
+                        <label className="text-xs text-slate-400 block font-bold mb-1">Chế độ lưu ảnh:</label>
+                        <div className="flex gap-4">
+                            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                                <input type="radio" name="leech_mode" checked={leechStorageMode === 'url'} onChange={() => setLeechStorageMode('url')} className="accent-primary"/> 
+                                Chỉ lưu URL hình ảnh
+                            </label>
+                            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                                <input type="radio" name="leech_mode" checked={leechStorageMode === 'upload'} onChange={() => setLeechStorageMode('upload')} className="accent-primary"/> 
+                                Upload hình ảnh lên host
+                            </label>
+                        </div>
+                    </div>
+                    <button onClick={handleRunLeech} disabled={isLeeching || (leechSelectedChapters.length === 0 && !manualHtml)} className="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors">{isLeeching ? <><RefreshCw size={18} className="animate-spin"/> {leechProgress || 'Đang xử lý...'}</> : <><Download size={18}/> Leech Ngay</>}</button>{leechProgress && !isLeeching && <div className="text-xs text-center text-slate-300 font-medium bg-white/5 p-2 rounded">{leechProgress}</div>}</div>)}</div>
                     <div className="flex justify-end gap-3 border-b border-white/10 pb-6 mb-6"><button onClick={() => setIsEditing(false)} className="px-4 py-2 rounded bg-white/5 text-slate-300">Hủy</button><button onClick={handleSaveComic} className="px-4 py-2 rounded bg-primary text-white font-bold flex items-center gap-2"><Save size={18} /> Lưu</button></div>
                     <div className="space-y-4"><div className="flex justify-between items-center"><h3 className="text-lg font-bold text-white flex items-center gap-2"><List size={18}/> Chapters</h3><button onClick={handleAddChapter} disabled={!comicForm.id} className="text-sm bg-white/10 text-white px-3 py-1.5 rounded flex items-center gap-2"><Plus size={16}/> Thêm</button></div><div className="bg-dark border border-white/10 rounded max-h-[400px] overflow-y-auto"><table className="w-full text-sm text-left"><thead className="bg-white/5 text-xs text-slate-400 uppercase sticky top-0"><tr><th className="p-3">Tên</th><th className="p-3">Số</th><th className="p-3">Ngày</th><th className="p-3 text-right">#</th></tr></thead><tbody>{(comicForm.chapters || []).map(chap => (<tr key={chap.id} className="hover:bg-white/5 text-slate-300"><td className="p-3">{chap.title}</td><td className="p-3">{chap.number}</td><td className="p-3 text-xs">{new Date(chap.updatedAt).toLocaleDateString()}</td><td className="p-3 text-right"><div className="flex justify-end gap-2"><button onClick={() => handleEditChapter(chap)} className="text-blue-400"><Edit size={14}/></button><button onClick={() => handleDeleteChapter(chap.id)} className="text-red-400"><Trash2 size={14}/></button></div></td></tr>))}</tbody></table></div></div>
                 </div>
             ) : (
                 <div className="bg-card border border-white/10 rounded-xl overflow-hidden"><table className="w-full text-left text-sm text-slate-300"><thead className="bg-white/5 text-xs uppercase text-slate-400"><tr><th className="p-3">Truyện</th><th className="p-3">Trạng thái</th><th className="p-3">Views</th><th className="p-3 text-right">#</th></tr></thead><tbody className="divide-y divide-white/5">{comics.map(c => (<tr key={c.id} className="hover:bg-white/5"><td className="p-3 font-medium text-white flex items-center gap-3"><img src={c.coverImage} className="w-8 h-12 object-cover rounded" alt=""/><div><div className="line-clamp-1">{c.title}</div><div className="text-xs text-slate-500">{c.chapters?.length || 0} chương</div></div></td><td className="p-3"><span className={`px-2 py-0.5 rounded text-xs ${c.status === 'Hoàn thành' ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'}`}>{c.status}</span></td><td className="p-3">{c.views.toLocaleString()}</td><td className="p-3 text-right"><div className="flex justify-end gap-2"><button onClick={() => handleQuickAddChapter(c.id)} className="text-green-400"><Plus size={16}/></button><button onClick={() => handleStartEdit(c.id)} className="text-blue-400"><Edit size={16}/></button><button onClick={() => handleDeleteComic(c.id)} className="text-red-400"><Trash2 size={16}/></button></div></td></tr>))}</tbody></table></div>
             )}
-            {isEditingChapter && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"><div className="bg-card border border-white/10 w-full max-w-2xl rounded-xl shadow-2xl"><div className="flex justify-between items-center p-4 border-b border-white/10"><h3 className="text-lg font-bold text-white">{chapterForm.id ? 'Sửa Chapter' : 'Thêm Mới'}</h3><button onClick={() => setIsEditingChapter(false)} className="text-slate-400 hover:text-white"><X size={20}/></button></div><div className="p-6 space-y-4"><div className="grid grid-cols-2 gap-4"><div><label className="text-xs text-slate-400 mb-1 block">Số (Order)</label><input type="number" value={chapterForm.number} onChange={e => setChapterForm({...chapterForm, number: parseFloat(e.target.value)})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div><label className="text-xs text-slate-400 mb-1 block">Tên hiển thị</label><input type="text" value={chapterForm.title} onChange={e => setChapterForm({...chapterForm, title: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div></div><div><div className="flex justify-between items-center mb-1"><label className="text-xs text-slate-400">Link ảnh (Mỗi dòng 1 link)</label><label className="text-xs bg-blue-600 px-3 py-1 rounded cursor-pointer flex items-center gap-1 text-white"><input type="file" multiple accept="image/*" className="hidden" ref={chapterInputRef} onChange={handleChapterImagesUpload}/>{isUploadingFile ? <RefreshCw size={12} className="animate-spin"/> : <Upload size={12}/>} Upload</label></div><textarea value={chapterForm.pagesContent} onChange={e => setChapterForm({...chapterForm, pagesContent: e.target.value})} className="w-full h-64 bg-dark border border-white/10 rounded p-2 text-white text-xs font-mono whitespace-pre"></textarea></div><div className="flex justify-end gap-2 pt-2"><button onClick={() => setIsEditingChapter(false)} className="px-4 py-2 rounded bg-white/5 text-slate-300">Hủy</button><button onClick={handleSaveChapter} disabled={isUploadingFile} className="px-4 py-2 rounded bg-primary text-white font-bold flex items-center gap-2">{isUploadingFile ? 'Đang tải...' : <><Save size={18}/> Lưu</>}</button></div></div></div></div>)}
+            {isEditingChapter && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"><div className="bg-card border border-white/10 w-full max-w-2xl rounded-xl shadow-2xl"><div className="flex justify-between items-center p-4 border-b border-white/10"><h3 className="text-lg font-bold text-white">{chapterForm.id ? 'Sửa Chapter' : 'Thêm Mới'}</h3><button onClick={() => setIsEditingChapter(false)} className="text-slate-400 hover:text-white"><X size={20}/></button></div><div className="p-6 space-y-4"><div className="grid grid-cols-2 gap-4"><div><label className="text-xs text-slate-400 mb-1 block">Số (Order)</label><input type="number" value={chapterForm.number} onChange={e => setChapterForm({...chapterForm, number: parseFloat(e.target.value)})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div><label className="text-xs text-slate-400 mb-1 block">Tên hiển thị</label><input type="text" value={chapterForm.title} onChange={e => setChapterForm({...chapterForm, title: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div></div><div><div className="flex justify-between items-center mb-1"><label className="text-xs text-slate-400">Link ảnh (Mỗi dòng 1 link)</label><label className="text-xs bg-blue-600 px-3 py-1 rounded cursor-pointer flex items-center gap-1 text-white"><input type="file" multiple accept="image/*" className="hidden" ref={chapterInputRef} onChange={handleChapterImagesUpload}/>{isUploadingFile ? <RefreshCw size={12} className="animate-spin"/> : <Upload size={12}/>} Upload</label></div><textarea value={chapterForm.pagesContent} onChange={e => setChapterForm({...chapterForm, pagesContent: e.target.value})} className="w-full h-64 bg-dark border border-white/10 rounded p-2 text-white text-sm font-mono whitespace-pre"></textarea></div><div className="flex justify-end gap-2 pt-2"><button onClick={() => setIsEditingChapter(false)} className="px-4 py-2 rounded bg-white/5 text-slate-300">Hủy</button><button onClick={handleSaveChapter} disabled={isUploadingFile} className="px-4 py-2 rounded bg-primary text-white font-bold flex items-center gap-2">{isUploadingFile ? 'Đang tải...' : <><Save size={18}/> Lưu</>}</button></div></div></div></div>)}
         </div>
     );
 
@@ -572,7 +634,15 @@ const Admin: React.FC = () => {
 
         return (
             <div className="space-y-8">
-                <h2 className="text-2xl font-bold text-white">Quản lý Đánh giá & Bình luận</h2>
+                <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-bold text-white">Quản lý Bình luận</h2>
+                    <button 
+                        onClick={loadData} 
+                        className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all"
+                    >
+                        <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> Làm mới
+                    </button>
+                </div>
                 
                 {/* Pending */}
                 <div className="bg-card border border-white/10 rounded-xl p-6">
@@ -586,11 +656,6 @@ const Admin: React.FC = () => {
                                     <div className="flex justify-between items-center mb-2">
                                         <span className="font-bold text-white">{c.userName} <span className="text-slate-500 font-normal">đã bình luận về</span> <span className="text-primary">{c.comicTitle || c.comicId}</span></span>
                                         <span className="text-xs text-slate-500">{new Date(c.date).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1 mb-2 text-yellow-400">
-                                        {Array.from({ length: 5 }).map((_, i) => (
-                                            <Star key={i} size={14} fill={i < (c.rating || 5) ? "currentColor" : "none"} className={i < (c.rating || 5) ? "" : "text-slate-600"}/>
-                                        ))}
                                     </div>
                                     <p className="text-sm text-slate-300">{c.content}</p>
                                 </div>
@@ -617,11 +682,6 @@ const Admin: React.FC = () => {
                                          <span className="font-bold text-slate-300">{c.userName}</span>
                                          <span className="text-xs text-slate-500">• {new Date(c.date).toLocaleDateString()}</span>
                                          <span className="text-xs text-slate-500">• {c.comicTitle}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1 mb-1 text-yellow-500/80">
-                                        {Array.from({ length: 5 }).map((_, i) => (
-                                            <Star key={i} size={12} fill={i < (c.rating || 5) ? "currentColor" : "none"} className={i < (c.rating || 5) ? "" : "text-slate-700"}/>
-                                        ))}
                                     </div>
                                     <p className="text-sm text-slate-400">{c.content}</p>
                                 </div>
@@ -778,7 +838,7 @@ const Admin: React.FC = () => {
                     <div className="bg-card p-6 rounded-xl border border-white/10 shadow-lg relative overflow-hidden group hover:border-green-500/30 transition-colors">
                         <div className="absolute right-0 top-0 w-24 h-24 bg-green-500/5 rounded-bl-full group-hover:bg-green-500/10 transition-colors"></div>
                         <div className="flex justify-between items-start mb-4 relative z-10">
-                            <div className="p-3 bg-green-500/20 text-green-500 rounded-lg"><Users size={24}/></div>
+                            <div className="p-3 bg-green-500/20 text-green-400 rounded-lg"><Users size={24}/></div>
                         </div>
                         <h3 className="text-3xl font-bold text-white mb-1 relative z-10">{users.length}</h3>
                         <p className="text-slate-400 text-sm relative z-10">Thành viên</p>
@@ -1005,7 +1065,7 @@ const Admin: React.FC = () => {
                      {[
                          {id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard},
                          {id: 'comics', label: 'Truyện tranh', icon: BookOpen},
-                         {id: 'comments', label: 'Bình luận & Đánh giá', icon: MessageSquare},
+                         {id: 'comments', label: 'Bình luận', icon: MessageSquare},
                          {id: 'genres', label: 'Thể loại', icon: List},
                          {id: 'media', label: 'Thư viện ảnh', icon: ImageIcon},
                          {id: 'ads', label: 'Quảng cáo', icon: LayoutDashboard},

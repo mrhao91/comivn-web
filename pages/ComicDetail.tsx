@@ -23,7 +23,6 @@ const ComicDetail: React.FC = () => {
 
   // State cho bình luận
   const [newComment, setNewComment] = useState('');
-  const [newRating, setNewRating] = useState(5);
   const [submittingComment, setSubmittingComment] = useState(false);
   const user = AuthService.getUser();
 
@@ -86,9 +85,6 @@ const ComicDetail: React.FC = () => {
       e.preventDefault();
       if (!newComment.trim() || !id) return;
 
-      // Không bắt buộc login vẫn cho comment nhưng phải chờ duyệt
-      // if (!user) { ... } // Tạm bỏ check login
-
       setSubmittingComment(true);
       const comment: Comment = {
           id: `cmt-${Date.now()}`,
@@ -97,17 +93,14 @@ const ComicDetail: React.FC = () => {
           content: newComment,
           date: new Date().toISOString(),
           isApproved: false, // Mặc định chưa duyệt
-          rating: newRating
+          rating: 5 // Mặc định 5 sao ẩn vì đã bỏ UI
       };
 
       await DataProvider.saveComment(comment);
-      // Không add vào list ngay vì cần duyệt
-      // setComments([comment, ...comments]); 
       
       setNewComment('');
-      setNewRating(5);
       setSubmittingComment(false);
-      setModalMessage("Đánh giá của bạn đã được gửi và đang chờ Admin duyệt.");
+      setModalMessage("Bình luận của bạn đã được gửi và đang chờ Admin duyệt.");
       setModalOpen(true);
   };
 
@@ -205,7 +198,7 @@ const ComicDetail: React.FC = () => {
                         ))}
                     </div>
                     
-                    {/* UPDATED: Combined Stats and Buttons Block */}
+                    {/* Combined Stats and Buttons Block */}
                     <div className="flex flex-col xl:flex-row gap-4 mb-6 items-center md:items-start xl:items-center">
                         {/* Stats Group */}
                         <div className="flex flex-wrap justify-center md:justify-start gap-6 text-sm text-slate-300 p-3 bg-white/5 rounded-xl border border-white/5 inline-flex items-center">
@@ -214,14 +207,6 @@ const ComicDetail: React.FC = () => {
                                 <div className="flex flex-col text-left">
                                     <span className="text-xs text-slate-500">Lượt xem</span>
                                     <span className="font-bold">{comic.views.toLocaleString()}</span>
-                                </div>
-                            </div>
-                            <div className="w-px h-8 bg-white/10"></div>
-                            <div className="flex items-center gap-2">
-                                <div className="p-2 bg-yellow-500/10 text-yellow-400 rounded-lg"><Star size={18}/></div>
-                                <div className="flex flex-col text-left">
-                                    <span className="text-xs text-slate-500">Đánh giá</span>
-                                    <span className="font-bold">{comic.rating || 5.0}/5</span>
                                 </div>
                             </div>
                             <div className="w-px h-8 bg-white/10"></div>
@@ -312,27 +297,11 @@ const ComicDetail: React.FC = () => {
                     {/* Comment Section */}
                     <section className="bg-card rounded-2xl border border-white/10 p-6 shadow-xl">
                         <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2 border-b border-white/5 pb-3">
-                            <MessageSquare className="text-primary"/> Bình luận & Đánh giá <span className="text-slate-500 text-base font-normal">({comments.length})</span>
+                            <MessageSquare className="text-primary"/> Bình luận <span className="text-slate-500 text-base font-normal">({comments.length})</span>
                         </h2>
                         
                         {/* Input Form */}
                         <form onSubmit={handlePostComment} className="mb-8 relative">
-                            {/* Rating Stars Input */}
-                            <div className="flex items-center gap-2 mb-3">
-                                <span className="text-sm text-slate-300 font-bold">Đánh giá:</span>
-                                {[1, 2, 3, 4, 5].map((star) => (
-                                    <button
-                                        type="button"
-                                        key={star}
-                                        onClick={() => setNewRating(star)}
-                                        className={`transition-transform hover:scale-110 ${star <= newRating ? 'text-yellow-400' : 'text-slate-600'}`}
-                                    >
-                                        <Star size={20} fill={star <= newRating ? "currentColor" : "none"} />
-                                    </button>
-                                ))}
-                                <span className="text-xs text-yellow-400 font-medium ml-1">({newRating} sao)</span>
-                            </div>
-
                             <textarea 
                                 value={newComment}
                                 onChange={(e) => setNewComment(e.target.value)}
@@ -345,7 +314,7 @@ const ComicDetail: React.FC = () => {
                                     disabled={submittingComment || !newComment.trim()}
                                     className="bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors flex items-center gap-2"
                                 >
-                                    {submittingComment ? 'Đang gửi...' : <><Send size={14}/> Gửi đánh giá</>}
+                                    {submittingComment ? 'Đang gửi...' : <><Send size={14}/> Gửi bình luận</>}
                                 </button>
                             </div>
                             <p className="text-[10px] text-slate-500 mt-1 italic">* Bình luận sẽ được Admin duyệt trước khi hiển thị.</p>
@@ -367,12 +336,6 @@ const ComicDetail: React.FC = () => {
                                                     {cmt.userName}
                                                     {cmt.userName === 'Admin' && <span className="ml-2 px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[10px] rounded border border-red-500/20">QTV</span>}
                                                 </span>
-                                                {/* Display Rating Stars */}
-                                                <div className="flex items-center gap-0.5 mt-0.5">
-                                                    {Array.from({ length: 5 }).map((_, i) => (
-                                                        <Star key={i} size={10} className={i < (cmt.rating || 5) ? "text-yellow-400" : "text-slate-600"} fill={i < (cmt.rating || 5) ? "currentColor" : "none"} />
-                                                    ))}
-                                                </div>
                                             </div>
                                             <span className="text-xs text-slate-500">{new Date(cmt.date).toLocaleDateString('vi-VN')}</span>
                                         </div>
@@ -381,7 +344,7 @@ const ComicDetail: React.FC = () => {
                                 </div>
                             ))}
                             {comments.length === 0 && (
-                                <div className="text-center py-6 text-slate-500 text-sm">Chưa có đánh giá nào. Hãy là người đầu tiên!</div>
+                                <div className="text-center py-6 text-slate-500 text-sm">Chưa có bình luận nào. Hãy là người đầu tiên!</div>
                             )}
                         </div>
                     </section>
