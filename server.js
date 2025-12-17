@@ -9,23 +9,15 @@ const zlib = require('zlib');
 // 1. CẤU HÌNH SERVER & MÔI TRƯỜNG
 // ==========================================
 const PORT = process.env.PORT || 3000;
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
 
-// Đảm bảo thư mục uploads tồn tại ngay khi khởi động
-if (!fs.existsSync(UPLOAD_DIR)) {
-    try {
-        fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-        console.log("✅ Đã tạo thư mục uploads");
-    } catch (e) {
-        console.error("❌ Không thể tạo thư mục uploads:", e.message);
-    }
+// XÁC ĐỊNH THƯ MỤC UPLOAD GỐC (Ưu tiên dist/uploads trên cPanel)
+let UPLOAD_ROOT = path.join(__dirname, 'uploads');
+if (fs.existsSync(path.join(__dirname, 'dist'))) {
+    UPLOAD_ROOT = path.join(__dirname, 'dist', 'uploads');
 }
 
-// Kiểm tra thư viện bắt buộc
-if (!fs.existsSync(path.join(__dirname, 'node_modules'))) {
-    console.error("❌ LỖI: Chưa tìm thấy thư mục 'node_modules'.");
-    console.error("👉 HÃY CHẠY LỆNH: npm install");
-    process.exit(1);
+if (!fs.existsSync(UPLOAD_ROOT)) {
+    try { fs.mkdirSync(UPLOAD_ROOT, { recursive: true }); } catch (e) { console.error("Lỗi tạo folder upload gốc:", e); }
 }
 
 const express = require('express');
@@ -34,23 +26,21 @@ const dotenv = require('dotenv');
 let mysql = null;
 let multer = null;
 
-try { mysql = require('mysql2'); } catch(e) { console.warn("⚠️ Cảnh báo: Chưa cài mysql2"); }
-try { multer = require('multer'); } catch(e) { console.warn("⚠️ Cảnh báo: Chưa cài multer"); }
+try { mysql = require('mysql2'); } catch(e) { console.warn("⚠️ Chưa cài mysql2"); }
+try { multer = require('multer'); } catch(e) { console.warn("⚠️ Chưa cài multer"); }
 
 dotenv.config();
 const app = express();
 
-// Giới hạn body
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cors({ origin: '*', optionsSuccessStatus: 200 }));
 app.disable('x-powered-by');
 
-// Cấu hình static folder để truy cập ảnh
-app.use('/uploads', express.static(UPLOAD_DIR));
+app.use('/uploads', express.static(UPLOAD_ROOT));
 
 // ==========================================
-// 2. CẤU HÌNH LOG & HELPER
+// 2. HELPER FUNCTIONS (Request & Bypass)
 // ==========================================
 const logError = (context, err) => {
     const time = new Date().toISOString();
@@ -59,71 +49,51 @@ const logError = (context, err) => {
     try { fs.appendFileSync(path.join(__dirname, 'server_error.log'), msg); } catch (e) {}
 };
 
-/**
- * Hàm requestUrl (FULL VERSION): 
- * Hỗ trợ Follow Redirect, Gzip/Deflate/Brotli, Custom Headers
- */
 const requestUrl = (url, options = {}, redirectCount = 0) => {
     return new Promise((resolve, reject) => {
         if (redirectCount > 10) return reject(new Error('Too many redirects'));
-
-        const parsedUrl = new URL(url);
+        let parsedUrl;
+        try { parsedUrl = new URL(url); } catch(e) { return reject(new Error('URL invalid: ' + url)); }
+        
         const defaultHeaders = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-            'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8',
             'Referer': parsedUrl.origin + '/',
             'Connection': 'keep-alive',
-            'Cache-Control': 'no-cache'
+            'Accept-Language': 'vi-VN,vi;q=0.9'
         };
-
+        
         const mergedHeaders = { ...defaultHeaders, ...options.headers };
         const lib = url.startsWith('http:') ? http : https;
         
-        const reqOpts = {
+        const req = lib.request({
             method: options.method || 'GET',
             headers: mergedHeaders,
             hostname: parsedUrl.hostname,
             port: parsedUrl.port,
             path: parsedUrl.pathname + parsedUrl.search,
-            timeout: 15000 // 15 seconds timeout
-        };
-
-        const req = lib.request(reqOpts, (res) => {
-            // Xử lý Redirect
+            timeout: 25000
+        }, (res) => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 let newUrl = res.headers.location;
-                if (!newUrl.startsWith('http')) {
-                    newUrl = new URL(newUrl, url).href;
-                }
+                if (!newUrl.startsWith('http')) newUrl = new URL(newUrl, url).href;
                 return requestUrl(newUrl, options, redirectCount + 1).then(resolve).catch(reject);
             }
-
-            // Xử lý nén dữ liệu (Gzip, Deflate, Brotli)
             const encoding = res.headers['content-encoding'];
             let stream = res;
-            
             if (encoding === 'gzip') stream = res.pipe(zlib.createGunzip());
             else if (encoding === 'deflate') stream = res.pipe(zlib.createInflate());
-            else if (encoding === 'br') {
-                try { stream = res.pipe(zlib.createBrotliDecompress()); } catch(e) {}
-            }
-
+            else if (encoding === 'br') { try { stream = res.pipe(zlib.createBrotliDecompress()); } catch(e) {} }
+            
             let data = [];
             stream.on('data', chunk => data.push(chunk));
             stream.on('end', () => {
                 const buffer = Buffer.concat(data);
-                resolve({
-                    statusCode: res.statusCode,
-                    headers: res.headers,
-                    buffer: buffer,
-                    text: buffer.toString('utf8')
-                });
+                resolve({ statusCode: res.statusCode, headers: res.headers, buffer: buffer, text: buffer.toString('utf8') });
             });
             stream.on('error', (err) => reject(err));
         });
-        
-        req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
+        req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
         req.on('error', err => reject(err));
         if (options.body) req.write(options.body);
         req.end();
@@ -131,39 +101,9 @@ const requestUrl = (url, options = {}, redirectCount = 0) => {
 };
 
 // ==========================================
-// 3. CẤU HÌNH DATABASE
+// 3. API ROUTES
 // ==========================================
-let db = null;
-if (mysql && process.env.DB_USER) {
-    try {
-        const dbConfig = {
-            host: process.env.DB_HOST || 'localhost',
-            user: process.env.DB_USER,
-            password: process.env.DB_PASSWORD,
-            database: process.env.DB_NAME,
-            port: process.env.DB_PORT || 3306,
-            waitForConnections: true,
-            connectionLimit: 10,
-            queueLimit: 0,
-            charset: 'utf8mb4'
-        };
-        if (process.env.DB_HOST !== 'localhost' && process.env.DB_HOST !== '127.0.0.1') {
-             dbConfig.ssl = { rejectUnauthorized: false };
-        }
-        db = mysql.createPool(dbConfig);
-    } catch(e) { logError('DB_CONFIG', e); }
-}
-
-const safeQuery = (sql, params, res, callback) => {
-    if (!db) return res.status(503).json({ error: "Database not connected" });
-    db.query(sql, params, (err, result) => {
-        if (err) {
-            logError('SQL_QUERY', err);
-            return res.status(500).json({ error: "Lỗi truy vấn: " + err.message });
-        }
-        callback(result);
-    });
-};
+const api = express.Router();
 
 const authMiddleware = (req, res, next) => {
     const auth = req.headers['authorization'];
@@ -171,47 +111,32 @@ const authMiddleware = (req, res, next) => {
     else res.status(401).json({ error: 'Unauthorized' });
 };
 
-// ==========================================
-// 4. ĐỊNH NGHĨA API ROUTES
-// ==========================================
-const api = express.Router();
-
-// --- AUTH ---
-api.post('/login', (req, res) => {
-    const { username, password } = req.body;
-    safeQuery('SELECT * FROM users WHERE username = ?', [username], res, (results) => {
-        if (results.length === 0) return res.json({ success: false, error: "Tài khoản không tồn tại" });
-        if (results[0].password != password) return res.json({ success: false, error: "Mật khẩu sai" });
-        const user = results[0];
-        res.json({ success: true, user: { id: user.id, username: user.username, role: user.role }, token: 'fake-jwt-token-xyz' });
-    });
-});
-
-// Tải ảnh từ URL về server (Hỗ trợ Leech)
+// API: Tải ảnh leech từ URL về thư mục riêng của truyện
 api.post('/upload-url', authMiddleware, async (req, res) => {
-    const { url } = req.body;
+    const { url, folder } = req.body;
     if (!url) return res.status(400).json({ error: 'Missing URL' });
     
+    // Tên thư mục: uploads/[folder] (slug truyện)
+    const subFolder = folder ? folder.replace(/[^a-z0-9-]/gi, '_') : 'general';
+    const targetDir = path.join(UPLOAD_ROOT, subFolder);
+    
     try {
-        const response = await requestUrl(url);
+        if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
         
+        const response = await requestUrl(url);
         if (response.buffer && response.statusCode === 200) {
-            // Xác định đuôi file từ content-type
-            let ext = '.jpg';
             const contentType = response.headers['content-type'] || '';
+            let ext = '.jpg';
             if (contentType.includes('image/png')) ext = '.png';
             else if (contentType.includes('image/webp')) ext = '.webp';
-            else if (contentType.includes('image/gif')) ext = '.gif';
             
-            const filename = `leech-${Date.now()}-${Math.round(Math.random()*1E9)}${ext}`;
-            const filepath = path.join(UPLOAD_DIR, filename);
+            const filename = `img-${Date.now()}-${Math.round(Math.random()*1E6)}${ext}`;
+            const filepath = path.join(targetDir, filename);
             
             fs.writeFileSync(filepath, response.buffer);
-            
-            // Trả về URL tương đối để frontend lưu vào DB
-            res.json({ success: true, url: `/uploads/${filename}` });
+            res.json({ success: true, url: `/uploads/${subFolder}/${filename}` });
         } else {
-            res.status(400).json({ success: false, error: `Lỗi HTTP ${response.statusCode} khi tải ảnh.` });
+            res.status(400).json({ success: false, error: `HTTP ${response.statusCode}` });
         }
     } catch (error) {
         logError('UPLOAD_URL', error);
@@ -219,102 +144,104 @@ api.post('/upload-url', authMiddleware, async (req, res) => {
     }
 });
 
-// --- MEDIA (Multer fallback) ---
-let uploadMiddleware = null;
+// API: Upload ảnh từ máy tính vào thư mục riêng
 if (multer) {
     const storage = multer.diskStorage({
-        destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+        destination: (req, file, cb) => {
+            const folder = req.query.folder || 'general';
+            const subFolder = folder.replace(/[^a-z0-9-]/gi, '_');
+            const targetDir = path.join(UPLOAD_ROOT, subFolder);
+            if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+            cb(null, targetDir);
+        },
         filename: (req, file, cb) => {
             const ext = path.extname(file.originalname) || '.jpg';
-            cb(null, `up-${Date.now()}-${Math.round(Math.random()*1E9)}${ext}`);
+            cb(null, `up-${Date.now()}-${Math.round(Math.random()*1E6)}${ext}`);
         }
     });
-    uploadMiddleware = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
-    
-    api.post('/upload', authMiddleware, (req, res) => {
-        uploadMiddleware.single('image')(req, res, (err) => {
-            if (err) return res.status(400).json({error: err.message});
-            if (!req.file) return res.status(400).json({error: "Chưa chọn file"});
-            res.json({ url: `/uploads/${req.file.filename}` });
-        });
+    const upload = multer({ storage });
+    api.post('/upload', authMiddleware, upload.single('image'), (req, res) => {
+        if (!req.file) return res.status(400).json({error: "No file"});
+        const folder = req.query.folder || 'general';
+        res.json({ url: `/uploads/${folder}/${req.file.filename}` });
     });
 }
 
-api.get('/media', authMiddleware, (req, res) => {
-    if (!fs.existsSync(UPLOAD_DIR)) return res.json([]);
-    fs.readdir(UPLOAD_DIR, (err, files) => {
-        if (err) return res.json([]);
-        const list = files.filter(f => !f.startsWith('.')).map(f => {
-            const s = fs.statSync(path.join(UPLOAD_DIR, f));
-            return { name: f, url: `/uploads/${f}`, size: s.size, created: s.birthtime };
+// Database Connection
+let db = null;
+if (mysql && process.env.DB_USER) {
+    try {
+        db = mysql.createPool({
+            host: process.env.DB_HOST || 'localhost',
+            user: process.env.DB_USER,
+            password: process.env.DB_PASSWORD,
+            database: process.env.DB_NAME,
+            port: process.env.DB_PORT || 3306,
+            waitForConnections: true,
+            connectionLimit: 10,
+            charset: 'utf8mb4'
         });
-        res.json(list);
+    } catch(e) { logError('DB_INIT', e); }
+}
+
+const safeQuery = (sql, params, res, callback) => {
+    if (!db) return res.status(503).json({ error: "No DB Connection" });
+    db.query(sql, params, (err, result) => {
+        if (err) { logError('SQL', err); return res.status(500).json({ error: err.message }); }
+        callback(result);
+    });
+};
+
+// --- AUTH ---
+api.post('/login', (req, res) => {
+    const { username, password } = req.body;
+    safeQuery('SELECT * FROM users WHERE username = ?', [username], res, (r) => {
+        if (r.length && r[0].password == password) res.json({ success: true, user: { id: r[0].id, username: r[0].username, role: r[0].role }, token: 'fake-jwt-token-xyz' });
+        else res.json({ success: false, error: "Sai thông tin đăng nhập" });
     });
 });
 
-api.delete('/media/:f', authMiddleware, (req, res) => {
-    const p = path.join(UPLOAD_DIR, req.params.f);
-    if (fs.existsSync(p)) fs.unlink(p, () => res.json({message: 'ok'}));
-    else res.status(404).json({error: 'not found'});
-});
-
-// --- COMICS & ANALYTICS ---
+// --- COMICS ---
 api.get('/comics', (req, res) => {
-    const sql = `SELECT c.*, 
-    (SELECT id FROM chapters WHERE comicId = c.id ORDER BY number DESC LIMIT 1) as latest_chap_id,
-    (SELECT number FROM chapters WHERE comicId = c.id ORDER BY number DESC LIMIT 1) as latest_chap_number,
-    (SELECT updatedAt FROM chapters WHERE comicId = c.id ORDER BY number DESC LIMIT 1) as latest_chap_date
-    FROM comics c ORDER BY updated_at DESC`;
-    safeQuery(sql, [], res, (r) => {
-        res.json(r.map(c => ({
-            ...c, 
-            genres: c.genres ? c.genres.split(',') : [], 
-            isRecommended: !!c.isRecommended,
-            chapters: c.latest_chap_id ? [{id: c.latest_chap_id, number: c.latest_chap_number, updatedAt: c.latest_chap_date, title: `Chap ${c.latest_chap_number}`}] : []
-        })));
-    });
+    const sql = `SELECT c.*, (SELECT id FROM chapters WHERE comicId = c.id ORDER BY number DESC LIMIT 1) as last_id, (SELECT number FROM chapters WHERE comicId = c.id ORDER BY number DESC LIMIT 1) as last_num, (SELECT updatedAt FROM chapters WHERE comicId = c.id ORDER BY number DESC LIMIT 1) as last_date FROM comics c ORDER BY updated_at DESC`;
+    safeQuery(sql, [], res, (r) => res.json(r.map(c => ({...c, genres: c.genres ? c.genres.split(',') : [], chapters: c.last_id ? [{id: c.last_id, number: c.last_num, updatedAt: c.last_date, title: `Chap ${c.last_num}`}] : []}))));
 });
 
 api.get('/comics/:id', (req, res) => {
     safeQuery('SELECT * FROM comics WHERE id=? OR slug=?', [req.params.id, req.params.id], res, (r) => {
-        if (!r.length) return res.status(404).json({message: 'Not found'});
-        const comic = r[0];
-        comic.genres = comic.genres ? comic.genres.split(',') : [];
-        comic.isRecommended = !!comic.isRecommended;
-        safeQuery('SELECT * FROM chapters WHERE comicId=? ORDER BY number DESC', [comic.id], res, (chaps) => {
-            comic.chapters = chaps || [];
-            res.json(comic);
-        });
+        if (!r.length) return res.status(404).json({message: '404'});
+        const comic = r[0]; comic.genres = comic.genres ? comic.genres.split(',') : [];
+        safeQuery('SELECT * FROM chapters WHERE comicId=? ORDER BY number DESC', [comic.id], res, (ch) => { comic.chapters = ch; res.json(comic); });
     });
 });
 
 api.post('/comics', authMiddleware, (req, res) => {
     const { id, title, slug, coverImage, author, status, genres, description, views, isRecommended, metaTitle, metaDescription, metaKeywords } = req.body;
+    
+    // TÍNH NĂNG MỚI: TỰ ĐỘNG TẠO THƯ MỤC THEO SLUG TRÊN SERVER
+    if (slug) {
+        const subFolder = slug.replace(/[^a-z0-9-]/gi, '_');
+        const comicDir = path.join(UPLOAD_ROOT, subFolder);
+        if (!fs.existsSync(comicDir)) {
+            try { 
+                fs.mkdirSync(comicDir, { recursive: true }); 
+                console.log(`✅ Đã tạo thư mục truyện: ${subFolder}`);
+            } catch(e) { console.error("❌ Lỗi tạo thư mục truyện:", e); }
+        }
+    }
+
     const g = Array.isArray(genres) ? genres.join(',') : genres;
-    const sql = `INSERT INTO comics (id, title, slug, coverImage, author, status, genres, description, views, isRecommended, metaTitle, metaDescription, metaKeywords) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
-    ON DUPLICATE KEY UPDATE title=?, slug=?, coverImage=?, author=?, status=?, genres=?, description=?, views=?, isRecommended=?, metaTitle=?, metaDescription=?, metaKeywords=?`;
+    const sql = `INSERT INTO comics (id, title, slug, coverImage, author, status, genres, description, views, isRecommended, metaTitle, metaDescription, metaKeywords) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE title=?, slug=?, coverImage=?, author=?, status=?, genres=?, description=?, views=?, isRecommended=?, metaTitle=?, metaDescription=?, metaKeywords=?`;
     const p = [id, title, slug, coverImage, author, status, g, description, views||0, isRecommended?1:0, metaTitle, metaDescription, metaKeywords, title, slug, coverImage, author, status, g, description, views||0, isRecommended?1:0, metaTitle, metaDescription, metaKeywords];
     safeQuery(sql, p, res, () => res.json({message: 'ok'}));
 });
 
-api.delete('/comics/:id', authMiddleware, (req, res) => {
-    safeQuery('DELETE FROM comics WHERE id=?', [req.params.id], res, () => res.json({message: 'ok'}));
-});
+api.delete('/comics/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM comics WHERE id=?', [req.params.id], res, () => res.json({message: 'ok'})));
 
 api.post('/comics/:id/view', (req, res) => {
     safeQuery('UPDATE comics SET views = views + 1 WHERE id=?', [req.params.id], res, () => {
         if (db) db.query('INSERT INTO daily_views (date, views) VALUES (CURRENT_DATE, 1) ON DUPLICATE KEY UPDATE views = views + 1');
         res.json({message: 'ok'});
-    });
-});
-
-api.get('/analytics', authMiddleware, (req, res) => {
-    if (!db) return res.json({ totalViews: 0, todayViews: 0, monthViews: 0 });
-    const q = 'SELECT (SELECT SUM(views) FROM comics) as total, (SELECT views FROM daily_views WHERE date = CURRENT_DATE) as today, (SELECT SUM(views) FROM daily_views WHERE MONTH(date) = MONTH(CURRENT_DATE)) as month';
-    db.query(q, (err, r) => {
-        if (err) return res.status(500).json(err);
-        res.json({ totalViews: r[0].total || 0, todayViews: r[0].today || 0, monthViews: r[0].month || 0 });
     });
 });
 
@@ -334,82 +261,83 @@ api.post('/chapters', authMiddleware, (req, res) => {
     });
 });
 
-api.delete('/chapters/:id', authMiddleware, (req, res) => {
-    safeQuery('DELETE FROM chapters WHERE id=?', [req.params.id], res, () => res.json({message: 'ok'}));
-});
+api.delete('/chapters/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM chapters WHERE id=?', [req.params.id], res, () => res.json({message: 'ok'})));
+api.get('/chapters/:id/pages', (req, res) => safeQuery('SELECT * FROM chapter_pages WHERE chapterId=? ORDER BY pageNumber ASC', [req.params.id], res, (r) => res.json(r)));
 
-api.get('/chapters/:id/pages', (req, res) => {
-    safeQuery('SELECT * FROM chapter_pages WHERE chapterId=? ORDER BY pageNumber ASC', [req.params.id], res, (r) => res.json(r));
-});
-
-// --- GENRES, ADS, THEME, STATIC, USERS, REPORTS ---
+// --- GENRES ---
 api.get('/genres', (req, res) => safeQuery('SELECT * FROM genres', [], res, r => res.json(r.map(g => ({...g, isShowHome: !!g.isShowHome})))));
 api.post('/genres', authMiddleware, (req, res) => {
     const {id,name,slug,isShowHome} = req.body;
     safeQuery(`INSERT INTO genres (id,name,slug,isShowHome) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE name=?,slug=?,isShowHome=?`, [id,name,slug,isShowHome?1:0,name,slug,isShowHome?1:0], res, () => res.json({message:'ok'}));
 });
-api.delete('/genres/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM genres WHERE id=?', [req.params.id], res, () => res.json({message:'ok'})));
 
-api.get('/ads', (req, res) => safeQuery('SELECT * FROM ads', [], res, r => res.json(r.map(a => ({...a, isActive: !!a.isActive})))));
-api.post('/ads', authMiddleware, (req, res) => {
-    const {id,position,imageUrl,linkUrl,isActive,title} = req.body;
-    safeQuery(`INSERT INTO ads (id,position,imageUrl,linkUrl,isActive,title) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE position=?,imageUrl=?,linkUrl=?,isActive=?,title=?`, [id,position,imageUrl,linkUrl,isActive?1:0,title,position,imageUrl,linkUrl,isActive?1:0,title], res, () => res.json({message:'ok'}));
+// --- MEDIA ---
+api.get('/media', authMiddleware, (req, res) => {
+    const getFiles = (dir, prefix = '') => {
+        let results = [];
+        const list = fs.readdirSync(dir);
+        list.forEach(file => {
+            const p = path.join(dir, file);
+            const stat = fs.statSync(p);
+            if (stat && stat.isDirectory()) {
+                results.push({ name: file, url: `/uploads/${prefix}${file}`, size: 0, created: stat.birthtime, isDir: true });
+                // We don't recurse here to keep UI flat but we could
+            } else {
+                results.push({ name: file, url: `/uploads/${prefix}${file}`, size: stat.size, created: stat.birthtime, isDir: false });
+            }
+        });
+        return results;
+    };
+    try {
+        res.json(getFiles(UPLOAD_ROOT));
+    } catch(e) { res.json([]); }
 });
-api.delete('/ads/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM ads WHERE id=?', [req.params.id], res, () => res.json({message:'ok'})));
 
-api.get('/theme', (req, res) => {
-    if(!db) return res.json({});
-    db.query('SELECT theme_config FROM settings WHERE id=1', (e, r) => {
-        if(e || !r.length) return res.json({});
-        try { res.json(JSON.parse(r[0].theme_config)); } catch { res.json({}); }
+api.delete('/media/:f', authMiddleware, (req, res) => {
+    const p = path.join(UPLOAD_ROOT, req.params.f);
+    if (fs.existsSync(p)) {
+        const s = fs.statSync(p);
+        if (s.isDirectory()) res.status(400).json({error: "Phải xóa qua FTP/File Manager"});
+        else fs.unlink(p, () => res.json({message: 'ok'}));
+    } else res.status(404).json({error: 'not found'});
+});
+
+// --- ANALYTICS ---
+api.get('/analytics', authMiddleware, (req, res) => {
+    if (!db) return res.json({ totalViews: 0, todayViews: 0, monthViews: 0 });
+    db.query('SELECT (SELECT SUM(views) FROM comics) as total, (SELECT views FROM daily_views WHERE date = CURRENT_DATE) as today, (SELECT SUM(views) FROM daily_views WHERE MONTH(date) = MONTH(CURRENT_DATE)) as month', (err, r) => {
+        if (err) return res.status(500).json(err);
+        res.json({ totalViews: r[0].total || 0, todayViews: r[0].today || 0, monthViews: r[0].month || 0 });
     });
 });
-api.post('/theme', authMiddleware, (req, res) => {
-    const c = JSON.stringify(req.body);
-    safeQuery(`INSERT INTO settings (id,theme_config) VALUES (1,?) ON DUPLICATE KEY UPDATE theme_config=?`, [c,c], res, () => res.json({message:'ok'}));
-});
 
-api.get('/static-pages', (req, res) => safeQuery('SELECT * FROM static_pages', [], res, r => res.json(r)));
-api.get('/static-pages/:slug', (req, res) => safeQuery('SELECT * FROM static_pages WHERE slug=?', [req.params.slug], res, r => r.length ? res.json(r[0]) : res.status(404).json({message:'404'})));
-api.post('/static-pages', authMiddleware, (req, res) => {
-    const {slug,title,content} = req.body;
-    safeQuery(`INSERT INTO static_pages (slug,title,content) VALUES (?,?,?) ON DUPLICATE KEY UPDATE title=?,content=?`, [slug,title,content,title,content], res, () => res.json({message:'ok'}));
+// --- REPORTS ---
+api.get('/reports', authMiddleware, (req, res) => {
+    const sql = `SELECT r.*, c.title as comicTitle, ch.title as chapterTitle FROM reports r LEFT JOIN comics c ON r.comicId = c.id LEFT JOIN chapters ch ON r.chapterId = ch.id ORDER BY r.created_at DESC`;
+    safeQuery(sql, [], res, r => res.json(r));
 });
+api.post('/reports', (req, res) => safeQuery('INSERT INTO reports (comicId, chapterId, message) VALUES (?, ?, ?)', [req.body.comicId, req.body.chapterId, req.body.message], res, () => res.json({message: 'ok'})));
 
-api.get('/users', authMiddleware, (req, res) => safeQuery('SELECT id,username,role FROM users', [], res, r => res.json(r)));
-api.post('/users', authMiddleware, (req, res) => {
-    const {id,username,password,role} = req.body;
-    if(!id) safeQuery('INSERT INTO users (username,password,role) VALUES (?,?,?)', [username,password,role], res, ()=>res.json({message:'ok'}));
-    else if(password) safeQuery('UPDATE users SET username=?,password=?,role=? WHERE id=?', [username,password,role,id], res, ()=>res.json({message:'ok'}));
-    else safeQuery('UPDATE users SET username=?,role=? WHERE id=?', [username,role,id], res, ()=>res.json({message:'ok'}));
+// --- ADS ---
+api.get('/ads', (req, res) => safeQuery('SELECT * FROM ads', [], res, r => res.json(r.map(a => ({...a, isActive: a.isActive === 1})))));
+api.post('/ads', authMiddleware, (req, res) => {
+    const { id, position, imageUrl, linkUrl, isActive, title } = req.body;
+    const active = isActive ? 1 : 0;
+    const sql = 'INSERT INTO ads (id, position, imageUrl, linkUrl, isActive, title) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE position=?, imageUrl=?, linkUrl=?, isActive=?, title=?';
+    db.query(sql, [id, position, imageUrl, linkUrl, active, title, position, imageUrl, linkUrl, active, title], (err) => {
+        if (err) return res.status(500).json(err);
+        res.json({message: 'Saved'});
+    });
 });
-api.delete('/users/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM users WHERE id=?', [req.params.id], res, () => res.json({message:'ok'})));
-
-api.get('/reports', authMiddleware, (req, res) => safeQuery(`SELECT r.*, c.title as comicTitle, ch.title as chapterTitle FROM reports r LEFT JOIN comics c ON r.comicId=c.id LEFT JOIN chapters ch ON r.chapterId=ch.id ORDER BY r.id DESC`, [], res, r => res.json(r)));
-api.post('/reports', (req, res) => safeQuery('INSERT INTO reports (comicId,chapterId,message) VALUES (?,?,?)', [req.body.comicId, req.body.chapterId, req.body.message], res, () => res.json({message:'ok'})));
-api.delete('/reports/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM reports WHERE id=?', [req.params.id], res, () => res.json({message:'ok'})));
 
 // --- COMMENTS ---
 api.get('/comments', (req, res) => {
     const sql = `SELECT c.*, co.title as comicTitle FROM comments c LEFT JOIN comics co ON c.comicId = co.id ORDER BY c.date DESC`;
-    safeQuery(sql, [], res, (results) => {
-        res.json(results.map(c => ({ ...c, isApproved: !!c.isApproved })));
-    });
+    safeQuery(sql, [], res, r => res.json(r.map(c => ({...c, isApproved: c.isApproved === 1}))));
 });
-
-api.post('/comments', (req, res) => { 
-    const { id, comicId, userName, content, date, rating } = req.body; 
-    const sql = `INSERT INTO comments (id, comicId, userName, content, date, isApproved, rating) VALUES (?, ?, ?, ?, ?, 0, ?)`;
-    safeQuery(sql, [id, comicId, userName, content, date ? new Date(date) : new Date(), rating || 5], res, () => res.json({ message: 'ok' }));
-});
-
-api.put('/comments/:id/approve', authMiddleware, (req, res) => {
-    safeQuery('UPDATE comments SET isApproved = 1 WHERE id = ?', [req.params.id], res, () => res.json({ message: 'ok' }));
-});
-
-api.delete('/comments/:id', authMiddleware, (req, res) => {
-    safeQuery('DELETE FROM comments WHERE id = ?', [req.params.id], res, () => res.json({ message: 'ok' }));
-});
+api.post('/comments', (req, res) => safeQuery('INSERT INTO comments (id, comicId, userName, content, date, isApproved, rating) VALUES (?, ?, ?, ?, ?, 0, ?)', [req.body.id, req.body.comicId, req.body.userName, req.body.content, req.body.date, req.body.rating], res, () => res.json({message: 'ok'})));
+api.put('/comments/:id/approve', authMiddleware, (req, res) => safeQuery('UPDATE comments SET isApproved=1 WHERE id=?', [req.params.id], res, () => res.json({message: 'ok'})));
+api.delete('/comments/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM comments WHERE id=?', [req.params.id], res, () => res.json({message: 'ok'})));
 
 // --- LEECH PROXY ---
 api.post('/leech', async (req, res) => {
@@ -417,14 +345,14 @@ api.post('/leech', async (req, res) => {
     if (!url) return res.json({ success: false, error: 'missing url' });
     try {
         const response = await requestUrl(url);
-        // Phát hiện Cloudflare / Bot Protection
+        // Phát hiện Cloudflare
         if (response.text.includes('Attention Required!') || response.text.includes('Just a moment...') || response.text.includes('Checking your browser')) {
             return res.json({ success: false, error: 'Cloudflare protected', html: response.text });
         }
         res.json({ success: true, html: response.text });
-    } catch (error) { 
+    } catch (error) {
         logError('LEECH_API', error);
-        res.json({ success: false, error: error.message }); 
+        res.json({ success: false, error: error.message });
     }
 });
 
