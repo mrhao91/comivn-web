@@ -58,6 +58,7 @@ export interface Comment {
     rating?: number; // Added to fix build error
     date: string;
     isApproved: boolean;
+    comicTitle?: string;
 }
 
 export interface StaticPage {
@@ -74,7 +75,18 @@ export interface ThemeConfig {
     secondaryColor: string;
     backgroundColor: string;
     cardColor: string;
-    fontFamily: 'sans' | 'serif' | 'mono';
+    
+    // Font Configuration
+    fontFamily: string; // Changed from enum to string to support Google Fonts
+
+    // Header Styling
+    headerBg?: string;
+    headerText?: string;
+
+    // Footer Styling
+    footerBg?: string;
+    footerText?: string;
+
     homeLayout: {
         showSlider: boolean;
         showHot: boolean;
@@ -121,4 +133,10 @@ export interface MediaFile {
     url: string;
     size: number;
     created: string;
+}
+
+export interface Analytics {
+    totalViews: number;
+    todayViews: number;
+    monthViews: number;
 }

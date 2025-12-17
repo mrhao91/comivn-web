@@ -43,30 +43,37 @@ const Header: React.FC = () => {
       navigate('/');
   };
 
+  // Use inline style for dynamic CSS variables from theme
+  const headerStyle = {
+      backgroundColor: 'var(--header-bg)',
+      color: 'var(--header-text)',
+      borderColor: 'rgba(255,255,255,0.1)'
+  };
+
   return (
-    <header className="sticky top-0 z-50 bg-dark/95 backdrop-blur-md border-b border-white/10">
+    <header className="sticky top-0 z-50 border-b transition-colors" style={headerStyle}>
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 group">
             <div className="w-8 h-8 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center text-white font-bold transform group-hover:scale-110 transition-transform">
                 C
             </div>
-            <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
+            <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400" style={{color: 'var(--header-text)'}}>
                 ComiVN
             </span>
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300">
+        <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
           {menuItems.map((item, index) => (
-              <Link key={index} to={item.url} className="hover:text-primary transition-colors">
+              <Link key={index} to={item.url} className="hover:text-primary transition-colors opacity-90 hover:opacity-100" style={{color: 'var(--header-text)'}}>
                   {item.label}
               </Link>
           ))}
           
           {/* Secret Entry Point: Only show Login Icon if NOT authenticated */}
           {!isAuthenticated && (
-            <Link to="/login" className="hover:text-primary transition-colors opacity-50 hover:opacity-100" title="Đăng nhập Admin">
+            <Link to="/login" className="hover:text-primary transition-colors opacity-50 hover:opacity-100" title="Đăng nhập Admin" style={{color: 'var(--header-text)'}}>
                 <User size={16} />
             </Link>
           )}
@@ -77,16 +84,18 @@ const Header: React.FC = () => {
             <input 
                 type="text" 
                 placeholder="Tìm truyện..." 
-                className="bg-card border border-white/10 rounded-full py-1.5 px-4 pl-10 text-sm focus:outline-none focus:border-primary w-64 text-slate-200 transition-all focus:w-72"
+                className="bg-black/20 border border-white/10 rounded-full py-1.5 px-4 pl-10 text-sm focus:outline-none focus:border-primary w-64 transition-all focus:w-72 placeholder-white/50"
+                style={{ color: 'var(--header-text)' }}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
             />
-            <Search className="w-4 h-4 absolute left-3.5 text-slate-400" />
+            <Search className="w-4 h-4 absolute left-3.5 opacity-50" style={{color: 'var(--header-text)'}} />
         </form>
 
         {/* Mobile Menu Toggle */}
         <button 
-            className="md:hidden text-slate-300"
+            className="md:hidden opacity-80"
+            style={{color: 'var(--header-text)'}}
             onClick={() => setIsMenuOpen(!isMenuOpen)}
         >
             {isMenuOpen ? <X /> : <Menu />}
@@ -95,25 +104,26 @@ const Header: React.FC = () => {
 
       {/* Mobile Menu */}
       {isMenuOpen && (
-        <div className="md:hidden bg-card border-b border-white/10 p-4 absolute w-full left-0 animate-in slide-in-from-top-2 shadow-2xl z-50">
+        <div className="md:hidden border-b border-white/10 p-4 absolute w-full left-0 animate-in slide-in-from-top-2 shadow-2xl z-50" style={{backgroundColor: 'var(--header-bg)', color: 'var(--header-text)'}}>
             <form onSubmit={handleSearch} className="mb-4 relative">
                 <input 
                     type="text" 
                     placeholder="Tìm kiếm..." 
-                    className="w-full bg-dark border border-white/10 rounded-lg py-2 px-4 pl-10 text-sm text-slate-200"
+                    className="w-full bg-black/20 border border-white/10 rounded-lg py-2 px-4 pl-10 text-sm placeholder-white/50"
+                    style={{color: 'var(--header-text)'}}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                 />
-                <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+                <Search className="w-4 h-4 absolute left-3.5 top-3 opacity-50" style={{color: 'var(--header-text)'}} />
             </form>
-            <nav className="flex flex-col gap-4 text-slate-300">
+            <nav className="flex flex-col gap-4">
                 {menuItems.map((item, index) => (
-                    <Link key={index} to={item.url} onClick={() => setIsMenuOpen(false)}>
+                    <Link key={index} to={item.url} onClick={() => setIsMenuOpen(false)} style={{color: 'var(--header-text)'}}>
                         {item.label}
                     </Link>
                 ))}
                 {!isAuthenticated && (
-                    <Link to="/login" className="text-slate-500" onClick={() => setIsMenuOpen(false)}>Đăng nhập Admin</Link>
+                    <Link to="/login" className="opacity-50" onClick={() => setIsMenuOpen(false)} style={{color: 'var(--header-text)'}}>Đăng nhập Admin</Link>
                 )}
             </nav>
         </div>

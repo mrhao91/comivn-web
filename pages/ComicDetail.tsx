@@ -8,6 +8,7 @@ import SEOHead from '../components/SEOHead';
 import AdDisplay from '../components/AdDisplay';
 import { Eye, BookOpen, Clock, List, Star, Send, User, MessageSquare, ChevronLeft, ChevronRight, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
 import { AuthService } from '../services/auth';
+import AppModal from '../components/AppModal';
 
 const ComicDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -22,6 +23,7 @@ const ComicDetail: React.FC = () => {
 
   // State cho bình luận
   const [newComment, setNewComment] = useState('');
+  const [newRating, setNewRating] = useState(5);
   const [submittingComment, setSubmittingComment] = useState(false);
   const user = AuthService.getUser();
 
@@ -30,6 +32,10 @@ const ComicDetail: React.FC = () => {
 
   // GIỚI HẠN KÝ TỰ MÔ TẢ
   const DESC_LIMIT = 300; 
+
+  // Modal State
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
 
   useEffect(() => {
     const fetchComic = async () => {
@@ -57,8 +63,9 @@ const ComicDetail: React.FC = () => {
                 
                 if (allComments) {
                     // Lọc bình luận của truyện này và sắp xếp mới nhất
+                    // CHỈ HIỂN THỊ COMMENT ĐÃ DUYỆT (isApproved === true)
                     const comicComments = allComments
-                        .filter(c => c.comicId === id)
+                        .filter(c => c.comicId === id && c.isApproved)
                         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
                     setComments(comicComments);
                 }
@@ -78,26 +85,30 @@ const ComicDetail: React.FC = () => {
   const handlePostComment = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!newComment.trim() || !id) return;
-      if (!user) {
-          alert("Vui lòng đăng nhập để bình luận (tính năng đang phát triển, hiện tại Admin mới có user)");
-          return;
-      }
+
+      // Không bắt buộc login vẫn cho comment nhưng phải chờ duyệt
+      // if (!user) { ... } // Tạm bỏ check login
 
       setSubmittingComment(true);
       const comment: Comment = {
           id: `cmt-${Date.now()}`,
           comicId: id,
-          userName: user.username || 'Thành viên',
+          userName: user ? (user.username || 'Thành viên') : 'Khách',
           content: newComment,
           date: new Date().toISOString(),
-          isApproved: true,
-          rating: 5
+          isApproved: false, // Mặc định chưa duyệt
+          rating: newRating
       };
 
       await DataProvider.saveComment(comment);
-      setComments([comment, ...comments]);
+      // Không add vào list ngay vì cần duyệt
+      // setComments([comment, ...comments]); 
+      
       setNewComment('');
+      setNewRating(5);
       setSubmittingComment(false);
+      setModalMessage("Đánh giá của bạn đã được gửi và đang chờ Admin duyệt.");
+      setModalOpen(true);
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-primary">Đang tải dữ liệu...</div>;
@@ -153,6 +164,14 @@ const ComicDetail: React.FC = () => {
             url={window.location.href}
         />
         
+        <AppModal 
+            isOpen={modalOpen} 
+            type="alert" 
+            title="Thông báo" 
+            message={modalMessage} 
+            onClose={() => setModalOpen(false)} 
+        />
+
         {/* Background Blur Effect */}
         <div className="relative h-[450px] md:h-[500px] overflow-hidden">
             <img src={comic.coverImage} className="w-full h-full object-cover blur-xl opacity-20" alt="bg" />
@@ -186,50 +205,55 @@ const ComicDetail: React.FC = () => {
                         ))}
                     </div>
                     
-                    <div className="flex flex-wrap justify-center md:justify-start gap-6 text-sm text-slate-300 mb-6 p-4 bg-white/5 rounded-xl border border-white/5 inline-flex">
-                        <div className="flex items-center gap-2">
-                            <div className="p-2 bg-blue-500/10 text-blue-400 rounded-lg"><Eye size={18}/></div>
-                            <div className="flex flex-col text-left">
-                                <span className="text-xs text-slate-500">Lượt xem</span>
-                                <span className="font-bold">{comic.views.toLocaleString()}</span>
+                    {/* UPDATED: Combined Stats and Buttons Block */}
+                    <div className="flex flex-col xl:flex-row gap-4 mb-6 items-center md:items-start xl:items-center">
+                        {/* Stats Group */}
+                        <div className="flex flex-wrap justify-center md:justify-start gap-6 text-sm text-slate-300 p-3 bg-white/5 rounded-xl border border-white/5 inline-flex items-center">
+                            <div className="flex items-center gap-2">
+                                <div className="p-2 bg-blue-500/10 text-blue-400 rounded-lg"><Eye size={18}/></div>
+                                <div className="flex flex-col text-left">
+                                    <span className="text-xs text-slate-500">Lượt xem</span>
+                                    <span className="font-bold">{comic.views.toLocaleString()}</span>
+                                </div>
+                            </div>
+                            <div className="w-px h-8 bg-white/10"></div>
+                            <div className="flex items-center gap-2">
+                                <div className="p-2 bg-yellow-500/10 text-yellow-400 rounded-lg"><Star size={18}/></div>
+                                <div className="flex flex-col text-left">
+                                    <span className="text-xs text-slate-500">Đánh giá</span>
+                                    <span className="font-bold">{comic.rating || 5.0}/5</span>
+                                </div>
+                            </div>
+                            <div className="w-px h-8 bg-white/10"></div>
+                            <div className="flex items-center gap-2">
+                                <div className="p-2 bg-green-500/10 text-green-400 rounded-lg"><User size={18}/></div>
+                                <div className="flex flex-col text-left">
+                                    <span className="text-xs text-slate-500">Tác giả</span>
+                                    <span className="font-bold">{comic.author || 'Đang cập nhật'}</span>
+                                </div>
                             </div>
                         </div>
-                        <div className="w-px bg-white/10"></div>
-                        <div className="flex items-center gap-2">
-                            <div className="p-2 bg-yellow-500/10 text-yellow-400 rounded-lg"><Star size={18}/></div>
-                            <div className="flex flex-col text-left">
-                                <span className="text-xs text-slate-500">Đánh giá</span>
-                                <span className="font-bold">{comic.rating || 5.0}</span>
-                            </div>
-                        </div>
-                        <div className="w-px bg-white/10"></div>
-                        <div className="flex items-center gap-2">
-                            <div className="p-2 bg-green-500/10 text-green-400 rounded-lg"><User size={18}/></div>
-                            <div className="flex flex-col text-left">
-                                <span className="text-xs text-slate-500">Tác giả</span>
-                                <span className="font-bold">{comic.author || 'Đang cập nhật'}</span>
-                            </div>
+
+                        {/* Buttons Group */}
+                        <div className="flex gap-3 justify-center md:justify-start">
+                            {comic.chapters.length > 0 ? (
+                                <>
+                                    <Link to={getChapterLink(comic.chapters[0].number)} className="bg-primary hover:bg-primary/90 text-white px-5 py-3 rounded-xl font-bold transition-all shadow-lg shadow-primary/25 hover:-translate-y-1 flex items-center gap-2 text-sm md:text-base">
+                                        <BookOpen size={18}/> Đọc Từ Đầu
+                                    </Link>
+                                    <Link to={getChapterLink(comic.chapters[0].number)} className="bg-white/10 hover:bg-white/20 text-white px-5 py-3 rounded-xl font-bold transition-all border border-white/10 hover:-translate-y-1 flex items-center gap-2 text-sm md:text-base">
+                                        <Clock size={18}/> Chap Mới Nhất
+                                    </Link>
+                                </>
+                            ) : (
+                                <button disabled className="bg-slate-700 text-slate-400 px-8 py-3.5 rounded-xl font-bold cursor-not-allowed">
+                                    Chưa có chương
+                                </button>
+                            )}
                         </div>
                     </div>
 
-                    <div className="flex justify-center md:justify-start gap-4 mb-6">
-                        {comic.chapters.length > 0 ? (
-                            <>
-                                <Link to={getChapterLink(comic.chapters[0].number)} className="bg-primary hover:bg-primary/90 text-white px-8 py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-primary/25 hover:-translate-y-1 flex items-center gap-2">
-                                    <BookOpen size={20}/> Đọc Từ Đầu
-                                </Link>
-                                <Link to={getChapterLink(comic.chapters[0].number)} className="bg-white/10 hover:bg-white/20 text-white px-6 py-3.5 rounded-xl font-bold transition-all border border-white/10 hover:-translate-y-1 flex items-center gap-2">
-                                    <Clock size={20}/> Chap Mới Nhất
-                                </Link>
-                            </>
-                        ) : (
-                            <button disabled className="bg-slate-700 text-slate-400 px-8 py-3.5 rounded-xl font-bold cursor-not-allowed">
-                                Chưa có chương
-                            </button>
-                        )}
-                    </div>
-
-                    {/* DESCRIPTION MOVED HERE */}
+                    {/* DESCRIPTION */}
                     <div className="bg-white/5 rounded-xl border border-white/5 p-4 text-left">
                          <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
                             <BookOpen size={18} className="text-primary"/> Nội dung
@@ -288,16 +312,32 @@ const ComicDetail: React.FC = () => {
                     {/* Comment Section */}
                     <section className="bg-card rounded-2xl border border-white/10 p-6 shadow-xl">
                         <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2 border-b border-white/5 pb-3">
-                            <MessageSquare className="text-primary"/> Bình luận <span className="text-slate-500 text-base font-normal">({comments.length})</span>
+                            <MessageSquare className="text-primary"/> Bình luận & Đánh giá <span className="text-slate-500 text-base font-normal">({comments.length})</span>
                         </h2>
                         
                         {/* Input Form */}
                         <form onSubmit={handlePostComment} className="mb-8 relative">
+                            {/* Rating Stars Input */}
+                            <div className="flex items-center gap-2 mb-3">
+                                <span className="text-sm text-slate-300 font-bold">Đánh giá:</span>
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                    <button
+                                        type="button"
+                                        key={star}
+                                        onClick={() => setNewRating(star)}
+                                        className={`transition-transform hover:scale-110 ${star <= newRating ? 'text-yellow-400' : 'text-slate-600'}`}
+                                    >
+                                        <Star size={20} fill={star <= newRating ? "currentColor" : "none"} />
+                                    </button>
+                                ))}
+                                <span className="text-xs text-yellow-400 font-medium ml-1">({newRating} sao)</span>
+                            </div>
+
                             <textarea 
                                 value={newComment}
                                 onChange={(e) => setNewComment(e.target.value)}
-                                placeholder="Viết bình luận của bạn..."
-                                className="w-full bg-dark/50 border border-white/10 rounded-xl p-4 text-slate-200 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all resize-none min-h-[100px]"
+                                placeholder="Viết bình luận của bạn (Tối thiểu 10 ký tự)..."
+                                className="w-full bg-dark/50 border border-white/10 rounded-xl p-4 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all resize-none min-h-[100px]"
                             ></textarea>
                             <div className="absolute bottom-3 right-3">
                                 <button 
@@ -305,9 +345,10 @@ const ComicDetail: React.FC = () => {
                                     disabled={submittingComment || !newComment.trim()}
                                     className="bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors flex items-center gap-2"
                                 >
-                                    {submittingComment ? 'Đang gửi...' : <><Send size={14}/> Gửi</>}
+                                    {submittingComment ? 'Đang gửi...' : <><Send size={14}/> Gửi đánh giá</>}
                                 </button>
                             </div>
+                            <p className="text-[10px] text-slate-500 mt-1 italic">* Bình luận sẽ được Admin duyệt trước khi hiển thị.</p>
                         </form>
 
                         {/* Comment List */}
@@ -321,18 +362,26 @@ const ComicDetail: React.FC = () => {
                                     </div>
                                     <div className="flex-grow">
                                         <div className="flex justify-between items-start mb-1">
-                                            <span className={`font-bold text-sm ${cmt.userName === 'Admin' ? 'text-red-400' : 'text-slate-300'}`}>
-                                                {cmt.userName}
-                                                {cmt.userName === 'Admin' && <span className="ml-2 px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[10px] rounded border border-red-500/20">QTV</span>}
-                                            </span>
+                                            <div className="flex flex-col">
+                                                <span className={`font-bold text-sm ${cmt.userName === 'Admin' ? 'text-red-400' : 'text-slate-300'}`}>
+                                                    {cmt.userName}
+                                                    {cmt.userName === 'Admin' && <span className="ml-2 px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[10px] rounded border border-red-500/20">QTV</span>}
+                                                </span>
+                                                {/* Display Rating Stars */}
+                                                <div className="flex items-center gap-0.5 mt-0.5">
+                                                    {Array.from({ length: 5 }).map((_, i) => (
+                                                        <Star key={i} size={10} className={i < (cmt.rating || 5) ? "text-yellow-400" : "text-slate-600"} fill={i < (cmt.rating || 5) ? "currentColor" : "none"} />
+                                                    ))}
+                                                </div>
+                                            </div>
                                             <span className="text-xs text-slate-500">{new Date(cmt.date).toLocaleDateString('vi-VN')}</span>
                                         </div>
-                                        <p className="text-sm text-slate-400 leading-relaxed">{cmt.content}</p>
+                                        <p className="text-sm text-slate-400 leading-relaxed mt-1">{cmt.content}</p>
                                     </div>
                                 </div>
                             ))}
                             {comments.length === 0 && (
-                                <div className="text-center py-6 text-slate-500 text-sm">Chưa có bình luận nào. Hãy là người đầu tiên!</div>
+                                <div className="text-center py-6 text-slate-500 text-sm">Chưa có đánh giá nào. Hãy là người đầu tiên!</div>
                             )}
                         </div>
                     </section>

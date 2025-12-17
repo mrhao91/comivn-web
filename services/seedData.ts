@@ -6,7 +6,13 @@ export const DEFAULT_THEME: ThemeConfig = {
     secondaryColor: '#78350f',
     backgroundColor: '#1c1917',
     cardColor: '#292524',
-    fontFamily: 'sans',
+    fontFamily: 'Inter', // Default Google Font
+    
+    headerBg: '#1c1917',
+    headerText: '#e2e8f0',
+    footerBg: '#292524',
+    footerText: '#94a3b8',
+
     homeLayout: { showSlider: true, showHot: true, showNew: true },
     headerMenu: [
         { label: 'Trang chủ', url: '/' },

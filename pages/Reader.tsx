@@ -7,7 +7,8 @@ import { Page, Comic, Chapter } from '../types';
 import { ChevronLeft, ChevronRight, Flag, AlertCircle } from 'lucide-react';
 import AdDisplay from '../components/AdDisplay';
 import SEOHead from '../components/SEOHead';
-import Header from '../components/Header'; // Import Global Header
+import Header from '../components/Header';
+import AppModal from '../components/AppModal';
 
 const Reader: React.FC = () => {
   // Support both new SEO URL (/doc/:slug/:chapterSlug e.g. chap-1) and Legacy URL (/doc/:chapterId)
@@ -18,6 +19,13 @@ const Reader: React.FC = () => {
   const [comic, setComic] = useState<Comic | undefined>(undefined);
   const [currentChapter, setCurrentChapter] = useState<Chapter | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+
+  // Modal State
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalTitle, setModalTitle] = useState('');
+  const [modalMessage, setModalMessage] = useState('');
+  const [modalType, setModalType] = useState<'alert' | 'prompt'>('alert');
+  const [onModalConfirm, setOnModalConfirm] = useState<(val?: string) => void>(() => {});
 
   useEffect(() => {
     const fetchData = async () => {
@@ -37,7 +45,6 @@ const Reader: React.FC = () => {
 
             if (slug && chapterSlug) {
                 // New SEO Friendly URL: /doc/:slug/chap-1
-                // We need to parse "chap-1" to get the number 1
                 const match = chapterSlug.match(/^chap-(\d+(\.\d+)?)$/);
                 if (match) {
                     comicSlugOrId = slug;
@@ -66,6 +73,9 @@ const Reader: React.FC = () => {
             if (comicData) {
                 setComic(comicData);
                 
+                // --- QUAN TRỌNG: Tăng view khi vào đọc ---
+                DataProvider.incrementView(comicData.id).catch(err => console.error("Lỗi tăng view:", err));
+
                 // 3. Tìm Chapter Object
                 let foundChapter: Chapter | undefined;
 
@@ -83,7 +93,7 @@ const Reader: React.FC = () => {
                     const pageData = await getChapterPages(foundChapter.id);
                     setPages(pageData);
                 } else {
-                    // Fallback: Nếu không tìm thấy chapter trong list comic
+                    // Fallback
                     if (targetChapterNumber === -1 && targetChapterId) {
                          const pageData = await getChapterPages(targetChapterId);
                          if (pageData && pageData.length > 0) {
@@ -117,7 +127,6 @@ const Reader: React.FC = () => {
     fetchData();
   }, [chapterId, slug, chapterSlug]);
 
-  // Helper chuyển đổi sang URL SEO Mới
   const getChapterUrl = (c: Chapter, comicData?: Comic) => {
       const targetComic = comicData || comic;
       if (!targetComic) return `/doc/${c.id}`;
@@ -138,8 +147,6 @@ const Reader: React.FC = () => {
       const currentIndex = comic.chapters.findIndex(c => c.id === currentChapter.id);
       if (currentIndex === -1) return;
 
-      // Danh sách chapter thường sort giảm dần (Mới nhất -> Cũ nhất)
-      // Next (Chap sau) = Số lớn hơn = Index NHỎ hơn (nếu sort DESC)
       let newIndex = direction === 'next' ? currentIndex - 1 : currentIndex + 1; 
       
       if (newIndex >= 0 && newIndex < comic.chapters.length) {
@@ -149,15 +156,21 @@ const Reader: React.FC = () => {
 
   const handleReportError = async () => {
       if (!comic || !currentChapter) return;
-      const reason = window.prompt("Mô tả lỗi (ảnh die, sai chương...):");
-      if (reason) {
-          const success = await DataProvider.sendReport(comic.id, currentChapter.id, reason);
-          if (success) {
-              alert("Đã gửi báo lỗi thành công. Cảm ơn bạn!");
-          } else {
-              alert("Gửi báo lỗi thất bại. Vui lòng thử lại sau.");
+      
+      setModalType('prompt');
+      setModalTitle('Báo lỗi chương');
+      setModalMessage('Mô tả lỗi gặp phải (ảnh die, sai chương, v.v.):');
+      setOnModalConfirm(() => async (reason?: string) => {
+          if (reason) {
+              const success = await DataProvider.sendReport(comic.id, currentChapter.id, reason);
+              setModalType('alert');
+              setModalTitle(success ? 'Thành công' : 'Thất bại');
+              setModalMessage(success ? 'Đã gửi báo lỗi thành công. Cảm ơn bạn!' : 'Gửi báo lỗi thất bại. Vui lòng thử lại sau.');
+              setOnModalConfirm(() => () => {});
+              setModalOpen(true);
           }
-      }
+      });
+      setModalOpen(true);
   };
 
   if (loading) return <div className="h-screen bg-black flex items-center justify-center text-white">Đang tải trang...</div>;
@@ -170,8 +183,8 @@ const Reader: React.FC = () => {
   );
 
   const currentIndex = comic?.chapters.findIndex(c => c.id === currentChapter?.id) ?? -1;
-  const hasNext = currentIndex > 0; // Có index nhỏ hơn (chap số to hơn)
-  const hasPrev = currentIndex < (comic?.chapters.length || 0) - 1; // Có index lớn hơn (chap số nhỏ hơn)
+  const hasNext = currentIndex > 0;
+  const hasPrev = currentIndex < (comic?.chapters.length || 0) - 1;
 
   const pageTitle = comic && currentChapter 
     ? `${comic.title} - ${currentChapter.title}` 
@@ -185,10 +198,17 @@ const Reader: React.FC = () => {
             url={window.location.href}
         />
 
-        {/* Global Header (Replacing the old custom header) */}
         <Header />
 
-        {/* Breadcrumbs & Title */}
+        <AppModal 
+            isOpen={modalOpen} 
+            type={modalType} 
+            title={modalTitle} 
+            message={modalMessage} 
+            onConfirm={onModalConfirm} 
+            onClose={() => setModalOpen(false)} 
+        />
+
         <div className="container mx-auto px-4 py-4">
              <div className="text-xs md:text-sm text-slate-500 mb-2 flex flex-wrap items-center gap-1">
                  <Link to="/" className="hover:text-white">Trang chủ</Link> 
@@ -203,7 +223,6 @@ const Reader: React.FC = () => {
              <p className="text-xs text-slate-500 italic">Cập nhật: {currentChapter?.updatedAt ? new Date(currentChapter.updatedAt).toLocaleDateString() : 'N/A'}</p>
         </div>
 
-        {/* Top Navigation Bar */}
         <div className="bg-[#222] py-3 sticky top-16 md:top-16 z-30 shadow-md border-y border-white/5">
             <div className="container mx-auto px-4 flex justify-center gap-2">
                  <button 
@@ -240,12 +259,10 @@ const Reader: React.FC = () => {
             </button>
         </div>
 
-        {/* Ads Top */}
         <div className="container mx-auto px-4">
              <AdDisplay position="reader_top" />
         </div>
 
-        {/* Content - Images */}
         <div className="flex flex-col items-center min-h-[500px] bg-[#111] my-4 max-w-5xl mx-auto shadow-2xl">
              {pages.map((page, idx) => (
                 <React.Fragment key={idx}>
@@ -264,12 +281,10 @@ const Reader: React.FC = () => {
             ))}
         </div>
 
-        {/* Ads Bottom */}
         <div className="container mx-auto px-4">
              <AdDisplay position="reader_bottom" />
         </div>
 
-        {/* Bottom Navigation Bar */}
         <div className="bg-[#222] py-6 border-t border-white/5 mt-6">
              <div className="container mx-auto px-4 flex flex-col items-center gap-4">
                  <div className="text-white font-bold text-lg">Bạn đang đọc {comic?.title} - {currentChapter?.title}</div>
@@ -300,7 +315,6 @@ const Reader: React.FC = () => {
              </div>
         </div>
 
-        {/* Floating PC Ads */}
         <AdDisplay position="reader_float_left" />
         <AdDisplay position="reader_float_right" />
     </div>

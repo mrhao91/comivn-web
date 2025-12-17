@@ -59,16 +59,45 @@ const App: React.FC = () => {
         
         const root = document.documentElement;
         
-        // Use fallbacks to prevent "undefined" CSS variables causing black screen
+        // Colors
         root.style.setProperty('--color-primary', theme.primaryColor || '#d97706');
         root.style.setProperty('--color-secondary', theme.secondaryColor || '#78350f');
         root.style.setProperty('--color-dark', theme.backgroundColor || '#1c1917');
         root.style.setProperty('--color-card', theme.cardColor || '#292524');
         root.style.setProperty('--color-darker', '#0c0a09'); 
+
+        // Header & Footer Custom Colors
+        root.style.setProperty('--header-bg', theme.headerBg || theme.backgroundColor || '#1c1917');
+        root.style.setProperty('--header-text', theme.headerText || '#e2e8f0');
+        root.style.setProperty('--footer-bg', theme.footerBg || theme.cardColor || '#292524');
+        root.style.setProperty('--footer-text', theme.footerText || '#94a3b8');
         
-        let fontStack = "'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
-        if (theme.fontFamily === 'serif') fontStack = "Georgia, Cambria, 'Times New Roman', Times, serif";
-        if (theme.fontFamily === 'mono') fontStack = "'Courier New', Courier, monospace";
+        // Font Handling
+        let fontStack = "'Inter', sans-serif"; // Default fallback
+        if (theme.fontFamily) {
+            const fontName = theme.fontFamily;
+            // Map specific Google Fonts to load
+            if (['Roboto', 'Open Sans', 'Patrick Hand', 'Playfair Display', 'Merriweather', 'Comfortaa'].includes(fontName)) {
+                // Check if link already exists
+                if (!document.querySelector(`link[href*="${fontName.replace(/ /g, '+')}"]`)) {
+                    const link = document.createElement('link');
+                    link.rel = 'stylesheet';
+                    link.href = `https://fonts.googleapis.com/css2?family=${fontName.replace(/ /g, '+')}:wght@300;400;500;700&display=swap`;
+                    document.head.appendChild(link);
+                }
+                fontStack = `'${fontName}', sans-serif`;
+                if (fontName === 'Playfair Display' || fontName === 'Merriweather') {
+                    fontStack = `'${fontName}', serif`;
+                }
+                if (fontName === 'Patrick Hand') {
+                    fontStack = `'${fontName}', cursive`;
+                }
+            } else if (theme.fontFamily === 'serif') {
+                fontStack = "Georgia, Cambria, 'Times New Roman', Times, serif";
+            } else if (theme.fontFamily === 'mono') {
+                fontStack = "'Courier New', Courier, monospace";
+            }
+        }
         root.style.setProperty('--font-family', fontStack);
 
         // Update Favicon
