@@ -1,5 +1,5 @@
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Outlet, Navigate, useParams } from 'react-router-dom';
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -28,14 +28,6 @@ const PublicLayout: React.FC = () => {
     );
 };
 
-// Protected Route Component
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    if (!AuthService.isAuthenticated()) {
-        return <Navigate to="/login" replace />;
-    }
-    return <>{children}</>;
-};
-
 // Helper: Redirect Legacy URLs
 const RedirectComic = () => { const { id } = useParams(); return <Navigate to={`/truyen/${id}`} replace />; };
 const RedirectReader = () => { const { id } = useParams(); return <Navigate to={`/doc/${id}`} replace />; };
@@ -51,6 +43,8 @@ const NotFound = () => (
 );
 
 const App: React.FC = () => {
+  const [loginUrl, setLoginUrl] = useState('/login');
+
   useEffect(() => {
     const loadTheme = async () => {
         const themeData = await DataProvider.getTheme();
@@ -59,6 +53,8 @@ const App: React.FC = () => {
         
         const root = document.documentElement;
         
+        setLoginUrl(theme.loginUrl || '/login');
+
         // Colors
         root.style.setProperty('--color-primary', theme.primaryColor || '#d97706');
         root.style.setProperty('--color-secondary', theme.secondaryColor || '#78350f');
@@ -113,6 +109,14 @@ const App: React.FC = () => {
     };
     loadTheme();
   }, []);
+  
+  // Protected Route Component (uses loginUrl from state)
+  const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+      if (!AuthService.isAuthenticated()) {
+          return <Navigate to={loginUrl} replace />;
+      }
+      return <>{children}</>;
+  };
 
   return (
     <BrowserRouter>
@@ -132,7 +136,7 @@ const App: React.FC = () => {
           </Route>
 
           {/* === STANDALONE ROUTES (No Header/Footer) === */}
-          <Route path="/login" element={<Login />} />
+          <Route path={loginUrl} element={<Login />} />
           
           {/* Reader Routes: Optimized first, then legacy catch-all */}
           {/* Use :chapterSlug to capture "chap-1" because React Router v6 doesn't support partial dynamic segments like chap-:num */}

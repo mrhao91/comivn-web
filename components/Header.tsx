@@ -70,13 +70,6 @@ const Header: React.FC = () => {
                   {item.label}
               </Link>
           ))}
-          
-          {/* Secret Entry Point: Only show Login Icon if NOT authenticated */}
-          {!isAuthenticated && (
-            <Link to="/login" className="hover:text-primary transition-colors opacity-50 hover:opacity-100" title="Đăng nhập Admin" style={{color: 'var(--header-text)'}}>
-                <User size={16} />
-            </Link>
-          )}
         </nav>
 
         {/* Search Bar (Desktop) */}
@@ -122,9 +115,6 @@ const Header: React.FC = () => {
                         {item.label}
                     </Link>
                 ))}
-                {!isAuthenticated && (
-                    <Link to="/login" className="opacity-50" onClick={() => setIsMenuOpen(false)} style={{color: 'var(--header-text)'}}>Đăng nhập Admin</Link>
-                )}
             </nav>
         </div>
       )}

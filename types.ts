@@ -97,6 +97,9 @@ export interface ThemeConfig {
         showNew: boolean;
         // NEW: Sortable list of genres for homepage
         homeGenres?: { name: string; slug: string }[];
+        hotComicsCount?: number;
+        newComicsCount?: number;
+        genreComicsCount?: number;
     };
     headerMenu?: { label: string; url: string }[];
     footerMenu?: { label: string; url: string }[];
@@ -105,6 +108,7 @@ export interface ThemeConfig {
     // General Info
     siteName?: string;
     favicon?: string; // New: Favicon
+    loginUrl?: string; // New: Admin Login URL
 
     // Home Page SEO
     homeMetaTitle?: string;

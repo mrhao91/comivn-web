@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Lock } from 'lucide-react';
@@ -7,12 +6,16 @@ import { DataProvider } from '../services/dataProvider';
 const Footer: React.FC = () => {
   const [footerContent, setFooterContent] = useState<string>('');
   const [footerMenu, setFooterMenu] = useState<{label: string, url: string}[]>([]);
+  const [loginUrl, setLoginUrl] = useState('/login');
 
   useEffect(() => {
       const loadFooter = async () => {
           const theme = await DataProvider.getTheme();
           if (theme.footerContent) {
               setFooterContent(theme.footerContent);
+          }
+          if (theme.loginUrl) {
+              setLoginUrl(theme.loginUrl);
           }
           if (theme.footerMenu && theme.footerMenu.length > 0) {
               setFooterMenu(theme.footerMenu);
@@ -53,7 +56,7 @@ const Footer: React.FC = () => {
             />
         ) : (
             <p className="text-sm mb-4 opacity-80" style={{color: 'var(--footer-text)'}}>
-              Nền tảng đọc truyện tranh trực tuyến miễn phí hàng đầu Việt Nam.
+              Thiết kế bởi Hạo Nam
             </p>
         )}
 
@@ -61,8 +64,6 @@ const Footer: React.FC = () => {
             {footerMenu.map((item, idx) => (
                 <Link key={idx} to={item.url} className="hover:text-primary transition-colors" style={{color: 'var(--footer-text)'}}>{item.label}</Link>
             ))}
-            <span className="hidden md:inline opacity-50">|</span>
-            <Link to="/login" className="hover:text-primary flex items-center gap-1" style={{color: 'var(--footer-text)'}}><Lock size={12}/> Admin</Link>
         </div>
         <p className="text-xs mt-6 opacity-50" style={{color: 'var(--footer-text)'}}>
           © {new Date().getFullYear()} ComiVN. All rights reserved.

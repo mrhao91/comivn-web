@@ -1,4 +1,3 @@
-
 import { Comic, Genre, Chapter, Page, AdConfig, Comment, StaticPage, ThemeConfig, User, Report, MediaFile, Analytics, LeechConfig } from '../types';
 import { StorageService } from './storage';
 import { API_BASE_URL, USE_MOCK_DATA } from './config';
@@ -69,7 +68,8 @@ const ApiService = {
     getStaticPages: async (): Promise<StaticPage[]> => (await fetchApi('/static-pages')) || [],
     getStaticPageBySlug: async (slug: string): Promise<StaticPage | undefined> => (await fetchApi(`/static-pages/${slug}`)) || undefined,
     saveStaticPage: async (page: StaticPage, token?: string): Promise<boolean> => !!(await fetchApi('/static-pages', { method: 'POST', body: JSON.stringify(page) })),
-    
+    deleteStaticPage: async (slug: string): Promise<boolean> => !!(await fetchApi(`/static-pages/${slug}`, { method: 'DELETE' })),
+
     getComments: async (): Promise<Comment[]> => (await fetchApi('/comments')) || [],
     saveComment: async (comment: Comment): Promise<boolean> => !!(await fetchApi('/comments', { method: 'POST', body: JSON.stringify(comment) })),
     approveComment: async (id: string): Promise<boolean> => !!(await fetchApi(`/comments/${id}/approve`, { method: 'PUT' })),

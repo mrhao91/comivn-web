@@ -2,28 +2,37 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthService } from '../services/auth';
 import { Lock, User, ArrowRight, ShieldCheck } from 'lucide-react';
+import AppModal, { ModalType } from '../components/AppModal';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  const [modal, setModal] = useState<{
+    isOpen: boolean;
+    type: ModalType;
+    title: string;
+    message: React.ReactNode;
+  }>({ isOpen: false, type: 'alert', title: '', message: '' });
+
+  const showAlert = (msg: string, title = 'Lỗi Đăng Nhập') => setModal({ isOpen: true, type: 'alert', title, message: msg });
+  const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }));
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
 
     try {
-      const success = await AuthService.login(username, password);
-      if (success) {
+      const result = await AuthService.login(username, password);
+      if (result.success) {
         navigate('/admin');
       } else {
-        setError('Tên đăng nhập hoặc mật khẩu không đúng!');
+        showAlert(result.error || 'Tên đăng nhập hoặc mật khẩu không đúng!');
       }
     } catch (err) {
-      setError('Đã xảy ra lỗi, vui lòng thử lại.');
+      showAlert('Đã xảy ra lỗi kết nối, vui lòng thử lại.');
     } finally {
       setLoading(false);
     }
@@ -31,6 +40,13 @@ const Login: React.FC = () => {
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center p-4">
+      <AppModal 
+        isOpen={modal.isOpen}
+        type={modal.type}
+        title={modal.title}
+        message={modal.message}
+        onClose={closeModal}
+      />
       <div className="w-full max-w-md bg-card border border-white/10 rounded-2xl shadow-2xl p-8 relative overflow-hidden">
         {/* Decorative background elements */}
         <div className="absolute top-0 right-0 w-32 h-32 bg-primary/20 blur-3xl rounded-full -mr-16 -mt-16"></div>
@@ -43,16 +59,9 @@ const Login: React.FC = () => {
                 </div>
                 <h1 className="text-2xl font-bold text-white">Quản Trị Viên</h1>
                 <p className="text-slate-400 text-sm mt-2">Đăng nhập để quản lý nội dung ComiVN</p>
-                <p className="text-slate-500 text-xs mt-1">(Tài khoản: admin / 123456)</p>
             </div>
 
             <form onSubmit={handleLogin} className="space-y-4">
-                {error && (
-                    <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-3 rounded-lg text-center animate-in fade-in slide-in-from-top-2">
-                        {error}
-                    </div>
-                )}
-
                 <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-300 ml-1">Tài khoản</label>
                     <div className="relative">

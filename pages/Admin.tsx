@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { 
     LayoutDashboard, BookOpen, List, Users, Settings, Image as ImageIcon, 
     Plus, Edit, Trash2, Save, X, ChevronRight, ChevronDown, 
@@ -163,7 +162,7 @@ const ALL_PERMISSIONS = [
 
 const Admin: React.FC = () => {
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'comics' | 'genres' | 'settings' | 'users' | 'ads' | 'reports' | 'static' | 'media' | 'comments' | 'leech_configs'>('media');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'comics' | 'genres' | 'settings' | 'users' | 'ads' | 'reports' | 'static' | 'media' | 'comments' | 'leech_configs'>('dashboard');
     const [loading, setLoading] = useState(false);
     
     // Data States
@@ -181,6 +180,7 @@ const Admin: React.FC = () => {
     const [leechJobs, setLeechJobs] = useState<LeechJob[]>([]); // New State for leech jobs
     const [mediaViewMode, setMediaViewMode] = useState<'grid' | 'tiles' | 'list'>('grid');
     const [mediaPath, setMediaPath] = useState<string[]>([]);
+    const [comicSearchQuery, setComicSearchQuery] = useState(''); // NEW: Comic search state
 
     // Dashboard Filter State
     const [topComicsTimeframe, setTopComicsTimeframe] = useState<'day' | 'week' | 'month'>('day');
@@ -493,7 +493,23 @@ const Admin: React.FC = () => {
 
 
     const handleStartEdit = async (id: string) => { setLoading(true); setComicForm({ id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false, slug: '', metaTitle: '', metaDescription: '', metaKeywords: '' }); setLeechSourceChapters([]); const f = await DataProvider.getComicById(id); if (f) { setComicForm(f); setIsEditing(true); } setLoading(false); };
-    const handleSaveComic = async () => { const id = comicForm.id || `comic-${Date.now()}`; const slug = comicForm.slug || slugify(comicForm.title); await DataProvider.saveComic({ ...comicForm, id, slug }); showAlert("Đã lưu truyện thành công!"); loadData(); };
+    
+    const handleSaveComic = async () => {
+        const id = comicForm.id || `comic-${Date.now()}`;
+        const slug = comicForm.slug || slugify(comicForm.title);
+        await DataProvider.saveComic({ ...comicForm, id, slug });
+        showConfirm(
+            "Đã lưu truyện thành công!",
+            () => {
+                setIsEditing(false); // Close form
+                loadData();         // Reload data
+            },
+            'Thành công',
+            'alert', // 'alert' type to show only an OK button with confirm logic
+            'OK'
+        );
+    };
+
     const handleDeleteComic = async (id: string) => { showConfirm('Bạn có chắc muốn xóa truyện này? Hành động không thể hoàn tác.', async () => { await DataProvider.deleteComic(id); loadData(); }, 'Xóa Truyện', 'danger'); };
     const handleAutoSummarize = async () => { if (!comicForm.title) return; const s = await summarizeComic(comicForm.title, comicForm.description); setComicForm({...comicForm, description: s}); };
     const handleEditChapter = async (c: Chapter) => { setLoading(true); const p = await DataProvider.getChapterPages(c.id); setChapterForm({ id: c.id, title: c.title, number: c.number, pagesContent: p.map(x => x.imageUrl).join('\n') }); setIsEditingChapter(true); setLoading(false); };
@@ -501,9 +517,9 @@ const Admin: React.FC = () => {
     const handleQuickAddChapter = async (id: string) => { await handleStartEdit(id); handleAddChapter(); };
     const handleSaveChapter = async () => { if (!comicForm.id) return showAlert("Lưu truyện trước!"); setIsUploadingFile(true); const cid = chapterForm.id || `${comicForm.id}-chap-${chapterForm.number}-${Date.now()}`; await DataProvider.saveChapter({ id: cid, comicId: comicForm.id, number: chapterForm.number, title: chapterForm.title, updatedAt: new Date().toISOString() }, chapterForm.pagesContent.split('\n').map(x => x.trim()).filter(Boolean).map((u, i) => ({ imageUrl: u, pageNumber: i + 1 }))); const updated = await DataProvider.getComicById(comicForm.id); if (updated) setComicForm(updated); setIsUploadingFile(false); setIsEditingChapter(false); };
     const handleDeleteChapter = async (id: string) => { showConfirm('Xóa chapter này?', async () => { await DataProvider.deleteChapter(id, comicForm.id); const u = await DataProvider.getComicById(comicForm.id); if (u) setComicForm(u); }, 'Xóa Chapter', 'danger'); };
-    const handleSaveGenre = async () => { await DataProvider.saveGenre({ ...genreForm, id: genreForm.id || `g-${Date.now()}`, slug: genreForm.slug || slugify(genreForm.name) }); setGenreForm({ id: '', name: '', slug: '', isShowHome: false }); loadData(); };
+    const handleSaveGenre = async () => { await DataProvider.saveGenre({ ...genreForm, id: genreForm.id || `g-${Date.now()}`, slug: genreForm.slug || slugify(genreForm.name) }); setGenreForm({ id: '', name: '', slug: '', isShowHome: false }); loadData(); showAlert("Đã lưu thể loại!"); };
     const handleDeleteGenre = async (id: string) => { showConfirm('Xóa thể loại này?', async () => { await DataProvider.deleteGenre(id); loadData(); }, 'Xóa Thể loại', 'danger'); };
-    const handleSaveAd = async () => { await DataProvider.saveAd({ ...adForm, id: adForm.id || `ad-${Date.now()}` }); setAdForm({ id: '', position: 'home_middle', imageUrl: '', linkUrl: '', isActive: true, title: '' }); loadData(); };
+    const handleSaveAd = async () => { await DataProvider.saveAd({ ...adForm, id: adForm.id || `ad-${Date.now()}` }); setAdForm({ id: '', position: 'home_middle', imageUrl: '', linkUrl: '', isActive: true, title: '' }); loadData(); showAlert("Đã lưu quảng cáo!"); };
     const handleDeleteAd = async (id: string) => { showConfirm('Xóa quảng cáo này?', async () => { await DataProvider.deleteAd(id); loadData(); }, 'Xóa Quảng cáo', 'danger'); };
     
     const handleSaveUser = async () => { 
@@ -516,9 +532,25 @@ const Admin: React.FC = () => {
 
     const handleDeleteUser = async (id: string | number) => { showConfirm('Xóa người dùng này?', async () => { await DataProvider.deleteUser(id); loadData(); }, 'Xóa User', 'danger'); };
     const handleSaveTheme = async () => { await DataProvider.saveTheme(themeConfig); showAlert("Đã lưu cấu hình thành công!"); window.location.reload(); };
-    const handleSaveStatic = async () => { await DataProvider.saveStaticPage(staticForm); setStaticForm({ slug: '', title: '', content: '' }); loadData(); };
+    const handleSaveStatic = async () => { await DataProvider.saveStaticPage(staticForm); setStaticForm({ slug: '', title: '', content: '' }); loadData(); showAlert("Đã lưu trang tĩnh!"); };
     const handleSeedStaticPages = async () => { showConfirm('Tạo lại các trang tĩnh mẫu?', async () => { for (const p of SEED_STATIC_PAGES) await DataProvider.saveStaticPage(p); loadData(); showAlert("Đã tạo xong!") }); };
     const handleDeleteReport = async (id: string) => { showConfirm('Xóa báo cáo này?', async () => { await DataProvider.deleteReport(id); loadData(); }, 'Xóa Báo cáo', 'danger'); };
+    
+    const handleDeleteStaticPage = async (slug: string, title: string) => {
+        showConfirm(
+            `Bạn có chắc muốn xóa trang "${title}"?`,
+            async () => {
+                await DataProvider.deleteStaticPage(slug);
+                if (staticForm.slug === slug) {
+                   setStaticForm({ slug: '', title: '', content: '' });
+                }
+                loadData();
+                showAlert("Đã xóa trang tĩnh.");
+            },
+            'Xóa Trang Tĩnh',
+            'danger'
+        );
+    };
     
     const handleMediaFolderClick = (folderName: string) => {
         setMediaPath(prev => [...prev, folderName]);
@@ -553,12 +585,12 @@ const Admin: React.FC = () => {
     const handleApproveComment = async (id: string) => { await DataProvider.approveComment(id); loadData(); };
     const handleDeleteComment = async (id: string) => { showConfirm('Xóa bình luận này?', async () => { await DataProvider.deleteComment(id); loadData(); }, 'Xóa Bình luận', 'danger'); };
     
-    // NEW: Leech Config Handlers
     const handleSaveLeechConfig = async () => {
         const id = leechConfigForm.id || `leech-${Date.now()}`;
         await DataProvider.saveLeechConfig({ ...leechConfigForm, id });
         setLeechConfigForm(initialLeechConfigForm);
         loadData();
+        showAlert("Đã lưu cấu hình leech!");
     };
     const handleDeleteLeechConfig = async (id: string) => {
         showConfirm('Xóa cấu hình này?', async () => {
@@ -623,7 +655,6 @@ const Admin: React.FC = () => {
         setDraggedGenre(null);
     };
 
-    // NEW: Handle editor password change
     const handleEditorPasswordChange = async () => {
         const currentUser = AuthService.getUser();
         if (!currentUser || !editorPasswordForm.password) {
@@ -635,6 +666,54 @@ const Admin: React.FC = () => {
         setEditorPasswordForm({ password: '' });
         showAlert("Đổi mật khẩu thành công!");
     };
+    
+    // --- Keyboard Shortcut Handler (Ctrl+S) ---
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                
+                switch (activeTab) {
+                    case 'comics':
+                        if (isEditingChapter) {
+                            if (chapterForm.pagesContent.trim()) handleSaveChapter();
+                            else showAlert("Không thể lưu chapter rỗng.", "Lỗi");
+                        } else if (isEditing) {
+                            if (comicForm.title.trim()) handleSaveComic();
+                            else showAlert("Tên truyện không được để trống.", "Lỗi");
+                        }
+                        break;
+                    case 'genres':
+                        if (genreForm.name.trim()) handleSaveGenre();
+                        break;
+                    case 'ads':
+                        if (adForm.imageUrl.trim()) handleSaveAd();
+                        break;
+                    case 'users':
+                        if (userForm.username.trim() && (userForm.id || userForm.password)) handleSaveUser();
+                        break;
+                    case 'static':
+                        if (staticForm.title.trim()) handleSaveStatic();
+                        break;
+                    case 'settings':
+                        handleSaveTheme();
+                        break;
+                    case 'leech_configs':
+                        if (leechConfigForm.name.trim()) handleSaveLeechConfig();
+                        break;
+                }
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [
+        activeTab, isEditing, isEditingChapter, 
+        comicForm, chapterForm, genreForm, adForm, 
+        userForm, staticForm, themeConfig, leechConfigForm
+    ]);
 
 
     // --- Renderers ---
@@ -645,99 +724,117 @@ const Admin: React.FC = () => {
         </div>
     );
 
-    const renderComicsTab = () => (
-        <div className="space-y-6">
-            <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-white">Quản lý Truyện</h2>{!isEditing && <button onClick={() => { setComicForm({ id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false, slug: '', metaTitle: '', metaDescription: '', metaKeywords: '' }); setIsEditing(true); }} className="bg-primary text-white px-4 py-2 rounded flex items-center gap-2"><Plus size={18} /> Thêm Truyện</button>}</div>
-            {isEditing ? (
-                <div className="bg-card border border-white/10 p-6 rounded-xl animate-in fade-in">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div><label className="text-xs text-slate-400 mb-1 block">Tên truyện</label><input type="text" value={comicForm.title} onChange={e => setComicForm({...comicForm, title: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div>
-                        <div><label className="text-xs text-slate-400 mb-1 block">Tác giả</label><input type="text" value={comicForm.author} onChange={e => setComicForm({...comicForm, author: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div>
-                        <div><label className="text-xs text-slate-400 mb-1 block">Ảnh bìa</label><div className="flex gap-2"><input type="text" value={comicForm.coverImage} onChange={e => setComicForm({...comicForm, coverImage: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white"/><label className="cursor-pointer bg-blue-600 px-3 py-2 rounded text-white"><input type="file" className="hidden" accept="image/*" ref={fileInputRef} onChange={(e) => handleFileUpload(e, 'comic')} /><Upload size={16}/></label></div></div>
-                         <div className="grid grid-cols-2 gap-2">
-                             <div><label className="text-xs text-slate-400 mb-1 block">Trạng thái</label><select value={comicForm.status} onChange={e => setComicForm({...comicForm, status: e.target.value as any})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"><option value="Đang tiến hành">Đang tiến hành</option><option value="Hoàn thành">Hoàn thành</option></select></div>
-                             <div><label className="text-xs text-slate-400 mb-1 block">Views</label><input type="number" value={comicForm.views} onChange={e => setComicForm({...comicForm, views: parseInt(e.target.value) || 0})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div>
+    const renderComicsTab = () => {
+        const filteredComics = comics.filter(c => 
+            c.title.toLowerCase().includes(comicSearchQuery.toLowerCase())
+        );
+
+        return (
+            <div className="space-y-6">
+                <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-white">Quản lý Truyện</h2>{!isEditing && <button onClick={() => { setComicForm({ id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false, slug: '', metaTitle: '', metaDescription: '', metaKeywords: '' }); setIsEditing(true); }} className="bg-primary text-white px-4 py-2 rounded flex items-center gap-2"><Plus size={18} /> Thêm Truyện</button>}</div>
+                {isEditing ? (
+                    <div className="bg-card border border-white/10 p-6 rounded-xl animate-in fade-in">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div><label className="text-xs text-slate-400 mb-1 block">Tên truyện</label><input type="text" value={comicForm.title} onChange={e => setComicForm({...comicForm, title: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div>
+                            <div><label className="text-xs text-slate-400 mb-1 block">Tác giả</label><input type="text" value={comicForm.author} onChange={e => setComicForm({...comicForm, author: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div>
+                            <div><label className="text-xs text-slate-400 mb-1 block">Ảnh bìa</label><div className="flex gap-2"><input type="text" value={comicForm.coverImage} onChange={e => setComicForm({...comicForm, coverImage: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white"/><label className="cursor-pointer bg-blue-600 px-3 py-2 rounded text-white"><input type="file" className="hidden" accept="image/*" ref={fileInputRef} onChange={(e) => handleFileUpload(e, 'comic')} /><Upload size={16}/></label></div></div>
+                             <div className="grid grid-cols-2 gap-2">
+                                 <div><label className="text-xs text-slate-400 mb-1 block">Trạng thái</label><select value={comicForm.status} onChange={e => setComicForm({...comicForm, status: e.target.value as any})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"><option value="Đang tiến hành">Đang tiến hành</option><option value="Hoàn thành">Hoàn thành</option></select></div>
+                                 <div><label className="text-xs text-slate-400 mb-1 block">Views</label><input type="number" value={comicForm.views} onChange={e => setComicForm({...comicForm, views: parseInt(e.target.value) || 0})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div>
+                            </div>
                         </div>
+                        <div className="mb-4"><label className="text-xs text-slate-400 mb-1 block">Thể loại</label><div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 bg-dark rounded border border-white/10">{genres.map(g => (<label key={g.id} className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={comicForm.genres.includes(g.name)} onChange={e => { const newGenres = e.target.checked ? [...comicForm.genres, g.name] : comicForm.genres.filter(name => name !== g.name); setComicForm({...comicForm, genres: newGenres}); }} className="accent-primary"/>{g.name}</label>))}</div></div>
+                        <div className="mb-4"><div className="flex justify-between items-center mb-1"><label className="text-xs text-slate-400">Mô tả</label><button type="button" onClick={handleAutoSummarize} className="text-xs text-primary hover:underline">✨ AI Tóm tắt</button></div><SimpleEditor value={comicForm.description} onChange={val => setComicForm({...comicForm, description: val})} height="150px"/></div>
+                        <div className="bg-dark/50 p-4 rounded-lg border border-white/5 space-y-3 mt-4 mb-6"><h5 className="text-sm font-bold text-primary flex items-center gap-2"><Globe size={16}/> SEO</h5><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div className="md:col-span-2"><label className="text-xs text-slate-400 mb-1 block">URL Slug</label><input type="text" value={comicForm.slug || ''} onChange={e => setComicForm({...comicForm, slug: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div><label className="text-xs text-slate-400 mb-1 block">Meta Title</label><input type="text" value={comicForm.metaTitle || ''} onChange={e => setComicForm({...comicForm, metaTitle: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div><label className="text-xs text-slate-400 mb-1 block">Meta Keywords</label><input type="text" value={comicForm.metaKeywords || ''} onChange={e => setComicForm({...comicForm, metaKeywords: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div className="md:col-span-2"><label className="text-xs text-slate-400 mb-1 block">Meta Description</label><textarea value={comicForm.metaDescription || ''} onChange={e => setComicForm({...comicForm, metaDescription: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white h-20"/></div></div></div>
+                        <div className="bg-gradient-to-br from-indigo-900/30 to-purple-900/30 border border-indigo-500/20 p-4 rounded-lg mb-6">
+                            <div className="flex justify-between items-start mb-2">
+                                <h3 className="font-bold text-white flex items-center gap-2"><Download size={18}/> Leech Truyện</h3>
+                                <button onClick={() => setShowManualLeech(!showManualLeech)} className="text-xs bg-indigo-500/20 text-indigo-200 px-2 py-1 rounded flex items-center gap-1 border border-indigo-500/30"><Code size={12}/> {showManualLeech ? "Ẩn HTML" : "Nhập HTML"}</button>
+                            </div>
+                            {leechError && <div className="mb-3 p-3 bg-red-500/20 text-red-300 text-sm">{leechError}</div>}
+                             <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
+                                 <select value={selectedLeechConfigId} onChange={e => setSelectedLeechConfigId(e.target.value)} className="md:col-span-1 bg-dark border border-white/10 rounded px-3 py-2 text-sm text-white"><option value="">-- Chọn Server Leech --</option>{leechConfigs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+                                 <input type="text" placeholder="Link truyện..." value={leechUrl} onChange={e => setLeechUrl(e.target.value)} className="md:col-span-2 bg-dark border border-white/10 rounded px-3 py-2 text-sm text-white"/>
+                             </div>
+                             <button onClick={handleScanLeech} disabled={isScanning} className="w-full bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold min-w-[80px]">{isScanning ? (leechProgress || '...') : 'Quét'}</button>
+                            
+                            {showManualLeech && (<div className="mt-3"><textarea value={manualHtml} onChange={e => setManualHtml(e.target.value)} className="w-full h-32 bg-dark border border-white/10 rounded p-2 text-xs font-mono text-slate-300" placeholder="HTML..."/><div className="mt-2 flex justify-end gap-2"><button onClick={handleScanLeech} disabled={!manualHtml} className="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold">Phân tích HTML</button></div></div>)}
+                            {leechSourceChapters.length > 0 && (<div className="space-y-3 pt-3 mt-3 border-t border-white/10"><div className="max-h-40 overflow-y-auto bg-dark border border-white/10 rounded p-2"><div className="flex justify-between items-center mb-2 px-1"><label className="text-xs text-slate-400 flex items-center gap-2"><input type="checkbox" onChange={e => setLeechSelectedChapters(e.target.checked ? leechSourceChapters.map(c => c.url) : [])} checked={leechSelectedChapters.length === leechSourceChapters.length && leechSourceChapters.length > 0}/> Tất cả</label><span className="text-xs text-indigo-400 font-bold">{leechSelectedChapters.length} chọn</span></div><div className="grid grid-cols-3 gap-1">{leechSourceChapters.map((c, idx) => (<label key={idx} className="flex items-center gap-2 text-xs p-1 hover:bg-white/5 rounded truncate"><input type="checkbox" checked={leechSelectedChapters.includes(c.url)} onChange={e => { if (e.target.checked) setLeechSelectedChapters(prev => [...prev, c.url]); else setLeechSelectedChapters(prev => prev.filter(u => u !== c.url)); }}/> {c.title}</label>))}</div></div>
+                        <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-2">
+                            <label className="text-xs text-slate-400 block mb-1">Chế độ lưu ảnh:</label>
+                            <div className="flex gap-4">
+                                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                                    <input type="radio" name="leech_mode" checked={leechStorageMode === 'url'} onChange={() => setLeechStorageMode('url')} className="accent-primary"/> 
+                                    Chỉ lưu URL hình ảnh
+                                </label>
+                                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                                    <input type="radio" name="leech_mode" checked={leechStorageMode === 'upload'} onChange={() => setLeechStorageMode('upload')} className="accent-primary"/> 
+                                    Upload hình ảnh lên host
+                                </label>
+                            </div>
+                        </div>
+                        <button onClick={handleRunLeech} disabled={leechSelectedChapters.length === 0} className="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors"><Download size={18}/> Leech Ngay</button></div>)}</div>
+                        <div className="flex justify-end gap-3 border-b border-white/10 pb-6 mb-6"><button onClick={() => setIsEditing(false)} className="px-4 py-2 rounded bg-white/5 text-slate-300">Đóng</button><button onClick={handleSaveComic} className="px-4 py-2 rounded bg-primary text-white font-bold flex items-center gap-2"><Save size={18} /> Lưu</button></div>
+                        <div className="space-y-4"><div className="flex justify-between items-center"><h3 className="text-lg font-bold text-white flex items-center gap-2"><List size={18}/> Chapters</h3><button onClick={handleAddChapter} disabled={!comicForm.id} className="text-sm bg-white/10 text-white px-3 py-1.5 rounded flex items-center gap-2"><Plus size={16}/> Thêm</button></div><div className="bg-dark border border-white/10 rounded max-h-[400px] overflow-y-auto"><table className="w-full text-sm text-left"><thead className="bg-white/5 text-xs text-slate-400 uppercase sticky top-0"><tr><th className="p-3">Tên</th><th className="p-3">Số</th><th className="p-3">Ngày</th><th className="p-3 text-right">#</th></tr></thead><tbody>{(comicForm.chapters || []).map(chap => (<tr key={chap.id} className="hover:bg-white/5 text-slate-300"><td className="p-3">{chap.title}</td><td className="p-3">{chap.number}</td><td className="p-3 text-xs">{new Date(chap.updatedAt).toLocaleDateString()}</td><td className="p-3 text-right"><div className="flex justify-end gap-2"><button onClick={() => handleEditChapter(chap)} className="text-blue-400"><Edit size={14}/></button><button onClick={() => handleDeleteChapter(chap.id)} className="text-red-400"><Trash2 size={14}/></button></div></td></tr>))}</tbody></table></div></div>
                     </div>
-                    <div className="mb-4"><label className="text-xs text-slate-400 mb-1 block">Thể loại</label><div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 bg-dark rounded border border-white/10">{genres.map(g => (<label key={g.id} className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={comicForm.genres.includes(g.name)} onChange={e => { const newGenres = e.target.checked ? [...comicForm.genres, g.name] : comicForm.genres.filter(name => name !== g.name); setComicForm({...comicForm, genres: newGenres}); }} className="accent-primary"/>{g.name}</label>))}</div></div>
-                    <div className="mb-4"><div className="flex justify-between items-center mb-1"><label className="text-xs text-slate-400">Mô tả</label><button type="button" onClick={handleAutoSummarize} className="text-xs text-primary hover:underline">✨ AI Tóm tắt</button></div><SimpleEditor value={comicForm.description} onChange={val => setComicForm({...comicForm, description: val})} height="150px"/></div>
-                    <div className="bg-dark/50 p-4 rounded-lg border border-white/5 space-y-3 mt-4 mb-6"><h5 className="text-sm font-bold text-primary flex items-center gap-2"><Globe size={16}/> SEO</h5><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div className="md:col-span-2"><label className="text-xs text-slate-400 mb-1 block">URL Slug</label><input type="text" value={comicForm.slug || ''} onChange={e => setComicForm({...comicForm, slug: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div><label className="text-xs text-slate-400 mb-1 block">Meta Title</label><input type="text" value={comicForm.metaTitle || ''} onChange={e => setComicForm({...comicForm, metaTitle: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div><label className="text-xs text-slate-400 mb-1 block">Meta Keywords</label><input type="text" value={comicForm.metaKeywords || ''} onChange={e => setComicForm({...comicForm, metaKeywords: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div className="md:col-span-2"><label className="text-xs text-slate-400 mb-1 block">Meta Description</label><textarea value={comicForm.metaDescription || ''} onChange={e => setComicForm({...comicForm, metaDescription: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white h-20"/></div></div></div>
-                    <div className="bg-gradient-to-br from-indigo-900/30 to-purple-900/30 border border-indigo-500/20 p-4 rounded-lg mb-6">
-                        <div className="flex justify-between items-start mb-2">
-                            <h3 className="font-bold text-white flex items-center gap-2"><Download size={18}/> Leech Truyện</h3>
-                            <button onClick={() => setShowManualLeech(!showManualLeech)} className="text-xs bg-indigo-500/20 text-indigo-200 px-2 py-1 rounded flex items-center gap-1 border border-indigo-500/30"><Code size={12}/> {showManualLeech ? "Ẩn HTML" : "Nhập HTML"}</button>
+                ) : (
+                    <div className="bg-card border border-white/10 rounded-xl overflow-hidden">
+                        <div className="p-3 bg-white/5 border-b border-white/10">
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                                <input
+                                    type="text"
+                                    placeholder="Tìm truyện..."
+                                    value={comicSearchQuery}
+                                    onChange={e => setComicSearchQuery(e.target.value)}
+                                    className="w-full bg-dark border border-white/10 rounded-lg py-1.5 px-4 pl-10 text-sm focus:outline-none focus:border-primary placeholder-slate-500"
+                                />
+                            </div>
                         </div>
-                        {leechError && <div className="mb-3 p-3 bg-red-500/20 text-red-300 text-sm">{leechError}</div>}
-                         <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
-                             <select value={selectedLeechConfigId} onChange={e => setSelectedLeechConfigId(e.target.value)} className="md:col-span-1 bg-dark border border-white/10 rounded px-3 py-2 text-sm text-white"><option value="">-- Chọn Server Leech --</option>{leechConfigs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
-                             <input type="text" placeholder="Link truyện..." value={leechUrl} onChange={e => setLeechUrl(e.target.value)} className="md:col-span-2 bg-dark border border-white/10 rounded px-3 py-2 text-sm text-white"/>
-                         </div>
-                         <button onClick={handleScanLeech} disabled={isScanning} className="w-full bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold min-w-[80px]">{isScanning ? (leechProgress || '...') : 'Quét'}</button>
-                        
-                        {showManualLeech && (<div className="mt-3"><textarea value={manualHtml} onChange={e => setManualHtml(e.target.value)} className="w-full h-32 bg-dark border border-white/10 rounded p-2 text-xs font-mono text-slate-300" placeholder="HTML..."/><div className="mt-2 flex justify-end gap-2"><button onClick={handleScanLeech} disabled={!manualHtml} className="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold">Phân tích HTML</button></div></div>)}
-                        {leechSourceChapters.length > 0 && (<div className="space-y-3 pt-3 mt-3 border-t border-white/10"><div className="max-h-40 overflow-y-auto bg-dark border border-white/10 rounded p-2"><div className="flex justify-between items-center mb-2 px-1"><label className="text-xs text-slate-400 flex items-center gap-2"><input type="checkbox" onChange={e => setLeechSelectedChapters(e.target.checked ? leechSourceChapters.map(c => c.url) : [])} checked={leechSelectedChapters.length === leechSourceChapters.length && leechSourceChapters.length > 0}/> Tất cả</label><span className="text-xs text-indigo-400 font-bold">{leechSelectedChapters.length} chọn</span></div><div className="grid grid-cols-3 gap-1">{leechSourceChapters.map((c, idx) => (<label key={idx} className="flex items-center gap-2 text-xs p-1 hover:bg-white/5 rounded truncate"><input type="checkbox" checked={leechSelectedChapters.includes(c.url)} onChange={e => { if (e.target.checked) setLeechSelectedChapters(prev => [...prev, c.url]); else setLeechSelectedChapters(prev => prev.filter(u => u !== c.url)); }}/> {c.title}</label>))}</div></div>
-                    <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-2">
-                        <label className="text-xs text-slate-400 block font-bold mb-1">Chế độ lưu ảnh:</label>
-                        <div className="flex gap-4">
-                            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-                                <input type="radio" name="leech_mode" checked={leechStorageMode === 'url'} onChange={() => setLeechStorageMode('url')} className="accent-primary"/> 
-                                Chỉ lưu URL hình ảnh
-                            </label>
-                            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-                                <input type="radio" name="leech_mode" checked={leechStorageMode === 'upload'} onChange={() => setLeechStorageMode('upload')} className="accent-primary"/> 
-                                Upload hình ảnh lên host
-                            </label>
-                        </div>
-                    </div>
-                    <button onClick={handleRunLeech} disabled={leechSelectedChapters.length === 0} className="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors"><Download size={18}/> Leech Ngay</button></div>)}</div>
-                    <div className="flex justify-end gap-3 border-b border-white/10 pb-6 mb-6"><button onClick={() => setIsEditing(false)} className="px-4 py-2 rounded bg-white/5 text-slate-300">Đóng</button><button onClick={handleSaveComic} className="px-4 py-2 rounded bg-primary text-white font-bold flex items-center gap-2"><Save size={18} /> Lưu</button></div>
-                    <div className="space-y-4"><div className="flex justify-between items-center"><h3 className="text-lg font-bold text-white flex items-center gap-2"><List size={18}/> Chapters</h3><button onClick={handleAddChapter} disabled={!comicForm.id} className="text-sm bg-white/10 text-white px-3 py-1.5 rounded flex items-center gap-2"><Plus size={16}/> Thêm</button></div><div className="bg-dark border border-white/10 rounded max-h-[400px] overflow-y-auto"><table className="w-full text-sm text-left"><thead className="bg-white/5 text-xs text-slate-400 uppercase sticky top-0"><tr><th className="p-3">Tên</th><th className="p-3">Số</th><th className="p-3">Ngày</th><th className="p-3 text-right">#</th></tr></thead><tbody>{(comicForm.chapters || []).map(chap => (<tr key={chap.id} className="hover:bg-white/5 text-slate-300"><td className="p-3">{chap.title}</td><td className="p-3">{chap.number}</td><td className="p-3 text-xs">{new Date(chap.updatedAt).toLocaleDateString()}</td><td className="p-3 text-right"><div className="flex justify-end gap-2"><button onClick={() => handleEditChapter(chap)} className="text-blue-400"><Edit size={14}/></button><button onClick={() => handleDeleteChapter(chap.id)} className="text-red-400"><Trash2 size={14}/></button></div></td></tr>))}</tbody></table></div></div>
-                </div>
-            ) : (
-                <div className="bg-card border border-white/10 rounded-xl overflow-hidden">
-                    <table className="w-full text-left text-sm text-slate-300">
-                        <thead className="bg-white/5 text-xs uppercase text-slate-400">
-                            <tr>
-                                <th className="p-3">Truyện</th>
-                                <th className="p-3">Thể loại</th>
-                                <th className="p-3">Trạng thái</th>
-                                <th className="p-3">Views</th>
-                                <th className="p-3 text-right">#</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/5">
-                            {comics.map(c => (
-                                <tr key={c.id} className="hover:bg-white/5">
-                                    <td className="p-3 font-medium text-white flex items-center gap-3">
-                                        <img src={c.coverImage} className="w-8 h-12 object-cover rounded" alt=""/>
-                                        <div>
-                                            <div className="line-clamp-1">{c.title}</div>
-                                            <div className="text-xs text-slate-500">{c.chapterCount || 0} chap</div>
-                                        </div>
-                                    </td>
-                                    <td className="p-3 text-xs max-w-48 truncate">{c.genres.join(', ')}</td>
-                                    <td className="p-3">
-                                        <span className={`px-2 py-0.5 rounded text-xs ${c.status === 'Hoàn thành' ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                                            {c.status}
-                                        </span>
-                                    </td>
-                                    <td className="p-3">{c.views.toLocaleString()}</td>
-                                    <td className="p-3 text-right">
-                                        <div className="flex justify-end gap-2">
-                                            <button onClick={() => handleQuickAddChapter(c.id)} className="text-green-400"><Plus size={16}/></button>
-                                            <button onClick={() => handleStartEdit(c.id)} className="text-blue-400"><Edit size={16}/></button>
-                                            <button onClick={() => handleDeleteComic(c.id)} className="text-red-400"><Trash2 size={16}/></button>
-                                        </div>
-                                    </td>
+                        <table className="w-full text-left text-sm text-slate-300">
+                            <thead className="bg-white/5 text-xs uppercase text-slate-400">
+                                <tr>
+                                    <th className="p-3">Truyện</th>
+                                    <th className="p-3">Thể loại</th>
+                                    <th className="p-3">Trạng thái</th>
+                                    <th className="p-3">Views</th>
+                                    <th className="p-3 text-right">#</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-            {isEditingChapter && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"><div className="bg-card border border-white/10 w-full max-w-2xl rounded-xl shadow-2xl"><div className="flex justify-between items-center p-4 border-b border-white/10"><h3 className="text-lg font-bold text-white">{chapterForm.id ? 'Sửa Chapter' : 'Thêm Mới'}</h3><button onClick={() => setIsEditingChapter(false)} className="text-slate-400 hover:text-white"><X size={20}/></button></div><div className="p-6 space-y-4"><div className="grid grid-cols-2 gap-4"><div><label className="text-xs text-slate-400 mb-1 block">Số (Order)</label><input type="number" value={chapterForm.number} onChange={e => setChapterForm({...chapterForm, number: parseFloat(e.target.value)})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div><label className="text-xs text-slate-400 mb-1 block">Tên hiển thị</label><input type="text" value={chapterForm.title} onChange={e => setChapterForm({...chapterForm, title: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div></div><div><div className="flex justify-between items-center mb-1"><label className="text-xs text-slate-400">Link ảnh (Mỗi dòng 1 link)</label><label className="text-xs bg-blue-600 px-3 py-1 rounded cursor-pointer flex items-center gap-1 text-white"><input type="file" multiple accept="image/*" className="hidden" ref={chapterInputRef} onChange={handleChapterImagesUpload}/>{isUploadingFile ? <RefreshCw size={12} className="animate-spin"/> : <Upload size={12}/>} Upload</label></div><textarea value={chapterForm.pagesContent} onChange={e => setChapterForm({...chapterForm, pagesContent: e.target.value})} className="w-full h-64 bg-dark border border-white/10 rounded p-2 text-white text-sm font-mono whitespace-pre"></textarea></div><div className="flex justify-end gap-2 pt-2"><button onClick={() => setIsEditingChapter(false)} className="px-4 py-2 rounded bg-white/5 text-slate-300">Hủy</button><button onClick={handleSaveChapter} disabled={isUploadingFile} className="px-4 py-2 rounded bg-primary text-white font-bold flex items-center gap-2">{isUploadingFile ? 'Đang tải...' : <><Save size={18}/> Lưu</>}</button></div></div></div></div>)}
-        </div>
-    );
+                            </thead>
+                            <tbody className="divide-y divide-white/5">
+                                {filteredComics.map(c => (
+                                    <tr key={c.id} className="hover:bg-white/5">
+                                        <td className="p-3 font-medium text-white flex items-center gap-3">
+                                            <img src={c.coverImage} className="w-8 h-12 object-cover rounded" alt=""/>
+                                            <div>
+                                                <div className="line-clamp-1">{c.title}</div>
+                                                <div className="text-xs text-slate-500">{c.chapterCount || 0} chap</div>
+                                            </div>
+                                        </td>
+                                        <td className="p-3 text-xs max-w-48 truncate">{c.genres.join(', ')}</td>
+                                        <td className="p-3">
+                                            <span className={`px-2 py-0.5 rounded text-xs ${c.status === 'Hoàn thành' ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                                                {c.status}
+                                            </span>
+                                        </td>
+                                        <td className="p-3">{c.views.toLocaleString()}</td>
+                                        <td className="p-3 text-right">
+                                            <div className="flex justify-end gap-2">
+                                                <button onClick={() => handleQuickAddChapter(c.id)} className="text-green-400"><Plus size={16}/></button>
+                                                <button onClick={() => handleStartEdit(c.id)} className="text-blue-400"><Edit size={16}/></button>
+                                                <button onClick={() => handleDeleteComic(c.id)} className="text-red-400"><Trash2 size={16}/></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+                {isEditingChapter && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"><div className="bg-card border border-white/10 w-full max-w-2xl rounded-xl shadow-2xl"><div className="flex justify-between items-center p-4 border-b border-white/10"><h3 className="text-lg font-bold text-white">{chapterForm.id ? 'Sửa Chapter' : 'Thêm Mới'}</h3><button onClick={() => setIsEditingChapter(false)} className="text-slate-400 hover:text-white"><X size={20}/></button></div><div className="p-6 space-y-4"><div className="grid grid-cols-2 gap-4"><div><label className="text-xs text-slate-400 mb-1 block">Số (Order)</label><input type="number" value={chapterForm.number} onChange={e => setChapterForm({...chapterForm, number: parseFloat(e.target.value)})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div><label className="text-xs text-slate-400 mb-1 block">Tên hiển thị</label><input type="text" value={chapterForm.title} onChange={e => setChapterForm({...chapterForm, title: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div></div><div><div className="flex justify-between items-center mb-1"><label className="text-xs text-slate-400">Link ảnh (Mỗi dòng 1 link)</label><label className="text-xs bg-blue-600 px-3 py-1 rounded cursor-pointer flex items-center gap-1 text-white"><input type="file" multiple accept="image/*" className="hidden" ref={chapterInputRef} onChange={handleChapterImagesUpload}/>{isUploadingFile ? <RefreshCw size={12} className="animate-spin"/> : <Upload size={12}/>} Upload</label></div><textarea value={chapterForm.pagesContent} onChange={e => setChapterForm({...chapterForm, pagesContent: e.target.value})} className="w-full h-64 bg-dark border border-white/10 rounded p-2 text-white text-sm font-mono whitespace-pre"></textarea></div><div className="flex justify-end gap-2 pt-2"><button onClick={() => setIsEditingChapter(false)} className="px-4 py-2 rounded bg-white/5 text-slate-300">Hủy</button><button onClick={handleSaveChapter} disabled={isUploadingFile} className="px-4 py-2 rounded bg-primary text-white font-bold flex items-center gap-2">{isUploadingFile ? 'Đang tải...' : <><Save size={18}/> Lưu</>}</button></div></div></div></div>)}
+            </div>
+        );
+    }
 
     const renderGenresTab = () => (
         <div className="space-y-6">
@@ -1073,6 +1170,18 @@ const Admin: React.FC = () => {
                             <div className="border-t border-white/5 pt-4 space-y-3">
                                 <div><label className="text-xs text-slate-400 block mb-1">Tên Website</label><input type="text" value={themeConfig.siteName} onChange={e => setThemeConfig({...themeConfig, siteName: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div>
                                 <div><label className="text-xs text-slate-400 block mb-1">Favicon URL</label><div className="flex gap-2"><input type="text" value={themeConfig.favicon || ''} onChange={e => setThemeConfig({...themeConfig, favicon: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white"/><label className="cursor-pointer bg-blue-600 px-3 py-2 rounded text-white"><input type="file" className="hidden" onChange={(e) => handleFileUpload(e, 'theme-favicon')} /><Upload size={16}/></label></div></div>
+                                {AuthService.isAdmin() && (
+                                    <div>
+                                        <label className="text-xs text-slate-400 block mb-1">URL Đăng nhập Admin</label>
+                                        <input 
+                                            type="text" 
+                                            value={themeConfig.loginUrl || ''} 
+                                            onChange={e => setThemeConfig({...themeConfig, loginUrl: e.target.value})} 
+                                            className="w-full bg-dark border border-white/10 rounded p-2 text-white"
+                                            placeholder="/login"
+                                        />
+                                    </div>
+                                )}
                             </div>
 
                              <div className="border-t border-white/5 pt-4">
@@ -1095,6 +1204,21 @@ const Admin: React.FC = () => {
                                     <label className="flex items-center gap-3 text-sm text-slate-300 hover:text-white cursor-pointer select-none"><input type="checkbox" checked={themeConfig.homeLayout?.showSlider ?? true} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...(themeConfig.homeLayout || DEFAULT_THEME.homeLayout), showSlider: e.target.checked}})} className="w-4 h-4 accent-primary rounded bg-dark border-white/20"/><span>Hiển thị Slider Banner</span></label>
                                     <label className="flex items-center gap-3 text-sm text-slate-300 hover:text-white cursor-pointer select-none"><input type="checkbox" checked={themeConfig.homeLayout?.showHot ?? true} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...(themeConfig.homeLayout || DEFAULT_THEME.homeLayout), showHot: e.target.checked}})} className="w-4 h-4 accent-primary rounded bg-dark border-white/20"/><span>Hiển thị Truyện Hot</span></label>
                                     <label className="flex items-center gap-3 text-sm text-slate-300 hover:text-white cursor-pointer select-none"><input type="checkbox" checked={themeConfig.homeLayout?.showNew ?? true} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...(themeConfig.homeLayout || DEFAULT_THEME.homeLayout), showNew: e.target.checked}})} className="w-4 h-4 accent-primary rounded bg-dark border-white/20"/><span>Hiển thị Truyện Mới</span></label>
+                                </div>
+                                
+                                <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/5">
+                                    <div>
+                                        <label className="text-xs text-slate-400 block mb-1">SL Truyện Hot</label>
+                                        <input type="number" value={themeConfig.homeLayout?.hotComicsCount || 6} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...(themeConfig.homeLayout || DEFAULT_THEME.homeLayout), hotComicsCount: parseInt(e.target.value) || 6}})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-slate-400 block mb-1">SL Truyện Mới</label>
+                                        <input type="number" value={themeConfig.homeLayout?.newComicsCount || 12} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...(themeConfig.homeLayout || DEFAULT_THEME.homeLayout), newComicsCount: parseInt(e.target.value) || 12}})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-slate-400 block mb-1">SL/Thể loại</label>
+                                        <input type="number" value={themeConfig.homeLayout?.genreComicsCount || 6} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...(themeConfig.homeLayout || DEFAULT_THEME.homeLayout), genreComicsCount: parseInt(e.target.value) || 6}})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
+                                    </div>
                                 </div>
 
                                 <div className="border-t border-white/5 pt-4 mt-4">
@@ -1162,10 +1286,20 @@ const Admin: React.FC = () => {
     
     const renderStaticTab = () => (
         <div className="space-y-6">
-            <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-white">Trang tĩnh</h2><button onClick={handleSeedStaticPages} className="text-sm bg-white/10 hover:bg-white/20 text-white px-3 py-1 rounded flex items-center gap-2"><RefreshCw size={14}/> Reset Mẫu</button></div>
+            <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-white">Trang tĩnh</h2>
+                <div className="flex gap-2">
+                    <button onClick={() => setStaticForm({ slug: '', title: '', content: '' })} className="text-sm bg-primary text-white px-3 py-1.5 rounded flex items-center gap-2">
+                        <Plus size={16}/> Thêm Mới
+                    </button>
+                    <button onClick={handleSeedStaticPages} className="text-sm bg-white/10 hover:bg-white/20 text-white px-3 py-1 rounded flex items-center gap-2">
+                        <RefreshCw size={14}/> Reset Mẫu
+                    </button>
+                </div>
+            </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-1 bg-card border border-white/10 p-4 rounded-xl h-fit space-y-3">
-                    <h3 className="font-bold text-white">Sửa trang</h3>
+                    <h3 className="font-bold text-white">{staticForm.slug ? 'Sửa trang' : 'Thêm trang mới'}</h3>
                     <input type="text" placeholder="Tiêu đề" value={staticForm.title} onChange={e => setStaticForm({...staticForm, title: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
                     <input type="text" placeholder="Slug (URL)" value={staticForm.slug} onChange={e => setStaticForm({...staticForm, slug: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
                     <SimpleEditor value={staticForm.content} onChange={val => setStaticForm({...staticForm, content: val})} height="300px"/>
@@ -1173,12 +1307,24 @@ const Admin: React.FC = () => {
                 </div>
                 <div className="lg:col-span-2 bg-card border border-white/10 rounded-xl overflow-hidden">
                     <table className="w-full text-left text-sm text-slate-300">
-                        <thead className="bg-white/5 uppercase text-xs"><tr><th className="p-3">Tiêu đề</th><th className="p-3">Slug</th></tr></thead>
+                        <thead className="bg-white/5 uppercase text-xs"><tr><th className="p-3">Tiêu đề</th><th className="p-3">Slug</th><th className="p-3 text-right">Thao tác</th></tr></thead>
                         <tbody>
                             {staticPages.map(p => (
-                                <tr key={p.slug} className="border-b border-white/5 hover:bg-white/5 cursor-pointer" onClick={() => setStaticForm(p)}>
-                                    <td className="p-3 text-white font-medium hover:text-primary">{p.title}</td>
-                                    <td className="p-3 text-slate-500">{p.slug}</td>
+                                <tr key={p.slug} className="border-b border-white/5 hover:bg-white/5">
+                                    <td className="p-3 text-white font-medium hover:text-primary cursor-pointer" onClick={() => setStaticForm(p)}>{p.title}</td>
+                                    <td className="p-3 text-slate-500 cursor-pointer" onClick={() => setStaticForm(p)}>{p.slug}</td>
+                                    <td className="p-3 text-right">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDeleteStaticPage(p.slug, p.title);
+                                            }}
+                                            className="text-red-400 hover:text-red-300"
+                                            title={`Xóa trang ${p.title}`}
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
@@ -1471,46 +1617,51 @@ const Admin: React.FC = () => {
                             
                             {/* Time Filters */}
                             <div className="flex bg-dark p-1 rounded-lg border border-white/10">
-                                {['day', 'week', 'month'].map((t) => (
-                                    <button
-                                        key={t}
-                                        onClick={() => setTopComicsTimeframe(t as any)}
-                                        className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${topComicsTimeframe === t ? 'bg-primary text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                                {['day', 'week', 'month'].map(tf => (
+                                    <button 
+                                        key={tf}
+                                        onClick={() => setTopComicsTimeframe(tf as any)}
+                                        className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${topComicsTimeframe === tf ? 'bg-primary text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
                                     >
-                                        {t === 'day' ? 'Hôm nay' : t === 'week' ? 'Tuần này' : 'Tháng này'}
+                                        {tf === 'day' ? 'Hôm nay' : (tf === 'week' ? 'Tuần này' : 'Tháng này')}
                                     </button>
                                 ))}
                             </div>
                         </div>
 
+                        {/* Leaderboard List */}
                         <div className="flex-1 p-6 overflow-y-auto">
                             <div className="space-y-6">
-                                {topComics.map((comic, index) => {
-                                    const maxViews = topComics[0]?.views || 1;
-                                    const percentage = (comic.views / maxViews) * 100;
-                                    
+                                {topComics.map((c, idx) => {
+                                    const topView = topComics[0]?.views || 1;
+                                    const percentage = (c.views / topView) * 100;
                                     return (
-                                        <div key={comic.id} className="relative group">
+                                        <div key={c.id} className="relative group">
                                             <div className="flex items-center gap-4 relative z-10">
-                                                <div className={`w-8 h-8 flex items-center justify-center rounded-lg font-bold text-sm ${index === 0 ? 'bg-yellow-500 text-black' : index === 1 ? 'bg-slate-300 text-black' : index === 2 ? 'bg-orange-700 text-white' : 'bg-white/10 text-slate-400'}`}>
-                                                    {index + 1}
+                                                <div className={`w-8 h-8 flex items-center justify-center rounded-lg font-bold text-sm ${idx === 0 ? 'bg-yellow-500 text-black' : (idx === 1 ? 'bg-slate-300 text-black' : (idx === 2 ? 'bg-orange-700 text-white' : 'bg-white/10 text-slate-400'))}`}>
+                                                    {idx + 1}
                                                 </div>
-                                                <img src={comic.coverImage} className="w-10 h-14 object-cover rounded bg-dark border border-white/10" alt={comic.title} />
+                                                <img src={c.coverImage} className="w-10 h-14 object-cover rounded bg-dark border border-white/10" alt={c.title} />
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex justify-between mb-1">
-                                                        <span className="text-sm font-bold text-white truncate pr-2 group-hover:text-primary transition-colors cursor-pointer" onClick={() => handleStartEdit(comic.id)}>{comic.title}</span>
-                                                        <span className="text-xs font-bold text-slate-300">{comic.views.toLocaleString()}</span>
+                                                        <span 
+                                                            className="text-sm font-bold text-white truncate pr-2 group-hover:text-primary transition-colors cursor-pointer"
+                                                            onClick={() => handleStartEdit(c.id)}
+                                                        >
+                                                            {c.title}
+                                                        </span>
+                                                        <span className="text-xs font-bold text-slate-300">{c.views.toLocaleString()}</span>
                                                     </div>
                                                     <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden">
                                                         <div 
-                                                            className={`h-full rounded-full ${index === 0 ? 'bg-gradient-to-r from-yellow-500 to-orange-500' : 'bg-primary'}`} 
+                                                            className={`h-full rounded-full ${idx === 0 ? 'bg-gradient-to-r from-yellow-500 to-orange-500' : 'bg-primary'}`} 
                                                             style={{ width: `${percentage}%` }}
                                                         ></div>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
-                                    )
+                                    );
                                 })}
                             </div>
                             <div className="mt-6 pt-4 border-t border-white/5 text-center">
@@ -1520,197 +1671,119 @@ const Admin: React.FC = () => {
                     </div>
                 </div>
 
-                {/* 3. Bottom Grid: System & Recent */}
+                {/* 3. System Status & Recent Updates */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                     {/* System Status */}
-                     <div className="bg-card border border-white/10 rounded-xl p-6">
+                    <div className="bg-card border border-white/10 rounded-xl p-6">
+                        <h3 className="font-bold text-white mb-4 flex items-center gap-2">
+                            <HardDrive size={18} className="text-slate-400" /> Trạng thái hệ thống
+                        </h3>
+                        <div className="space-y-4">
+                            <div>
+                                <div className="flex justify-between text-xs mb-1">
+                                    <span className="text-slate-400">Dung lượng ảnh (Ước tính)</span>
+                                    <span className="text-white font-bold">{(comics.length * 15 + 120).toFixed(0)} MB / 5 GB</span>
+                                </div>
+                                <div className="w-full bg-white/5 rounded-full h-2 overflow-hidden">
+                                    <div className="h-full bg-blue-500 w-[5%]"></div>
+                                </div>
+                            </div>
+                            <div>
+                                <div className="flex justify-between text-xs mb-1">
+                                    <span className="text-slate-400">Database Records</span>
+                                    <span className="text-white font-bold">{comics.length * 20 + 500} rows</span>
+                                </div>
+                                <div className="w-full bg-white/5 rounded-full h-2 overflow-hidden">
+                                    <div className="h-full bg-green-500 w-[12%]"></div>
+                                </div>
+                            </div>
+                            <div className="pt-2 flex gap-2">
+                                <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded border border-green-500/20">Server: Online</span>
+                                <span className="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded border border-blue-500/20">Database: Connected</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="bg-card border border-white/10 rounded-xl p-6">
                          <h3 className="font-bold text-white mb-4 flex items-center gap-2">
-                             <HardDrive size={18} className="text-slate-400"/> Trạng thái hệ thống
-                         </h3>
-                         <div className="space-y-4">
-                             <div>
-                                 <div className="flex justify-between text-xs mb-1">
-                                     <span className="text-slate-400">Dung lượng ảnh (Ước tính)</span>
-                                     <span className="text-white font-bold">{(comics.length * 15 + 120).toFixed(0)} MB / 5 GB</span>
-                                 </div>
-                                 <div className="w-full bg-white/5 rounded-full h-2 overflow-hidden">
-                                     <div className="h-full bg-blue-500 w-[5%]"></div>
-                                 </div>
-                             </div>
-                             <div>
-                                 <div className="flex justify-between text-xs mb-1">
-                                     <span className="text-slate-400">Database Records</span>
-                                     <span className="text-white font-bold">{(comics.length * 20 + 500)} rows</span>
-                                 </div>
-                                 <div className="w-full bg-white/5 rounded-full h-2 overflow-hidden">
-                                     <div className="h-full bg-green-500 w-[12%]"></div>
-                                 </div>
-                             </div>
-                             <div className="pt-2 flex gap-2">
-                                 <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded border border-green-500/20">Server: Online</span>
-                                 <span className="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded border border-blue-500/20">Database: Connected</span>
-                             </div>
-                         </div>
-                     </div>
-
-                     {/* Recent Updates */}
-                     <div className="bg-card border border-white/10 rounded-xl p-6">
-                         <h3 className="font-bold text-white mb-4 flex items-center gap-2">
-                             <Clock size={18} className="text-slate-400"/> Vừa cập nhật
-                         </h3>
-                         <div className="space-y-3">
-                             {latestComics.slice(0, 3).map(c => (
-                                 <div key={c.id} className="flex gap-3 items-center p-2 hover:bg-white/5 rounded-lg transition-colors cursor-pointer" onClick={() => handleStartEdit(c.id)}>
-                                     <img src={c.coverImage} className="w-10 h-10 object-cover rounded" alt=""/>
-                                     <div className="flex-1 min-w-0">
-                                         <div className="text-sm font-medium text-white truncate">{c.title}</div>
-                                         <div className="text-xs text-slate-500">
-                                             {c.chapters[0] ? `Đã đăng ${c.chapters[0].title}` : 'Chưa có chương'}
-                                         </div>
-                                     </div>
-                                     <div className="text-[10px] text-slate-500 whitespace-nowrap">
-                                         {c.chapters[0]?.updatedAt ? new Date(c.chapters[0].updatedAt).toLocaleDateString() : 'N/A'}
-                                     </div>
-                                 </div>
-                             ))}
-                             <button onClick={() => setActiveTab('comics')} className="w-full text-center text-xs text-primary hover:underline pt-2">Xem tất cả truyện</button>
-                         </div>
-                     </div>
+                            <Clock size={18} className="text-slate-400" /> Vừa cập nhật
+                        </h3>
+                        <div className="space-y-3">
+                            {latestComics.slice(0, 3).map(c => (
+                                <div key={c.id} className="flex gap-3 items-center p-2 hover:bg-white/5 rounded-lg transition-colors cursor-pointer" onClick={() => handleStartEdit(c.id)}>
+                                    <img src={c.coverImage} className="w-10 h-10 object-cover rounded" alt=""/>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-medium text-white truncate">{c.title}</div>
+                                        <div className="text-xs text-slate-500">{c.chapters[0] ? `Đã đăng ${c.chapters[0].title}` : 'Chưa có chương'}</div>
+                                    </div>
+                                    <div className="text-[10px] text-slate-500 whitespace-nowrap">
+                                        {c.chapters[0]?.updatedAt ? new Date(c.chapters[0].updatedAt).toLocaleDateString() : 'N/A'}
+                                    </div>
+                                </div>
+                            ))}
+                            <button onClick={() => setActiveTab('comics')} className="w-full text-center text-xs text-primary hover:underline pt-2">Xem tất cả truyện</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         );
     };
 
-    const renderLeechJobsPanel = () => {
-        if (leechJobs.length === 0) return null;
-    
-        const clearCompleted = () => {
-            setLeechJobs(prev => prev.filter(j => j.status === 'running'));
-        };
-
-        const getStatusIcon = (status: LeechJob['status']) => {
-            switch (status) {
-                case 'running': return <RefreshCw size={16} className="text-blue-400 animate-spin" />;
-                case 'completed': return <CheckCircle size={16} className="text-green-400" />;
-                case 'failed': return <AlertTriangle size={16} className="text-red-400" />;
-            }
-        };
-    
-        return (
-            <div className="fixed bottom-4 right-4 z-[100] w-96">
-                <div className="bg-card border border-white/10 rounded-xl shadow-2xl flex flex-col">
-                    <div className="flex justify-between items-center p-3 border-b border-white/10">
-                        <h4 className="font-bold text-white text-sm flex items-center gap-2">
-                            <Download size={16} /> Tiến trình Leech
-                        </h4>
-                        <button onClick={clearCompleted} className="text-xs text-slate-400 hover:text-white">Dọn dẹp</button>
-                    </div>
-                    <div className="max-h-64 overflow-y-auto p-3 space-y-3 custom-scrollbar">
-                        {leechJobs.map(job => (
-                            <div key={job.id} className="bg-dark/50 p-3 rounded-lg border border-white/5">
-                                <div className="flex justify-between items-start">
-                                    <p className="text-sm font-bold text-slate-200 truncate pr-2">{job.comicTitle}</p>
-                                    {getStatusIcon(job.status)}
-                                </div>
-                                <p className="text-xs text-slate-400 mt-1 truncate">{job.progressText}</p>
-                                {job.status === 'running' && job.totalChapters > 0 && (
-                                    <div className="mt-2">
-                                        <div className="w-full bg-slate-700 rounded-full h-1.5">
-                                            <div 
-                                                className="bg-green-500 h-1.5 rounded-full transition-all duration-300" 
-                                                style={{ width: `${(job.completedChapters / job.totalChapters) * 100}%` }}
-                                            ></div>
-                                        </div>
-                                        <p className="text-right text-[10px] text-slate-500 mt-1">{job.completedChapters} / {job.totalChapters}</p>
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
-        );
-    }
-    
-    const menuItems = [
-        {id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard},
-        {id: 'comics', label: 'Truyện tranh', icon: BookOpen},
-        {id: 'comments', label: 'Bình luận', icon: MessageSquare},
-        {id: 'genres', label: 'Thể loại', icon: List},
-        {id: 'media', label: 'Thư viện ảnh', icon: ImageIcon},
-        {id: 'ads', label: 'Quảng cáo', icon: LayoutDashboard},
-        {id: 'users', label: 'Thành viên', icon: Users},
-        {id: 'reports', label: 'Báo lỗi', icon: AlertTriangle},
-        {id: 'static', label: 'Trang tĩnh', icon: FileText},
-        {id: 'settings', label: 'Cấu hình', icon: Settings},
-        {id: 'leech_configs', label: 'Cấu hình Leech', icon: LinkIcon},
-    ];
-
     return (
         <div className="min-h-screen bg-darker flex text-slate-200">
-             <AppModal 
-                isOpen={modal.isOpen} 
-                type={modal.type} 
-                title={modal.title} 
-                message={modal.message} 
-                confirmText={modal.confirmText}
-                defaultValue={modal.defaultValue}
-                onConfirm={modal.onConfirm} 
-                onClose={closeModal} 
-             />
-             
-             {/* Sidebar */}
-             <div className="w-64 bg-card border-r border-white/10 hidden md:flex flex-col flex-shrink-0">
-                 <div className="h-16 flex items-center px-6 border-b border-white/10">
-                     <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">Admin Panel</span>
-                 </div>
-                 <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-                     {menuItems.filter(item => AuthService.hasPermission(item.id)).map(item => (
-                         <button 
-                            key={item.id}
-                            onClick={() => setActiveTab(item.id as any)}
-                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === item.id ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
-                         >
-                             <item.icon size={18}/> {item.label}
-                         </button>
-                     ))}
-                 </nav>
-                 <div className="p-4 border-t border-white/10">
-                     <Link to="/" className="flex items-center gap-2 text-slate-400 hover:text-white mb-4 text-sm px-2"><ArrowLeft size={16}/> Về trang chủ</Link>
-                     <button onClick={AuthService.logout} className="flex items-center gap-2 text-red-400 hover:text-red-300 text-sm px-2 font-medium w-full"><LogOut size={16}/> Đăng xuất</button>
-                 </div>
-             </div>
-             
-             {/* Mobile Header */}
+            <AppModal isOpen={modal.isOpen} type={modal.type} title={modal.title} message={modal.message} confirmText={modal.confirmText} defaultValue={modal.defaultValue} onConfirm={modal.onConfirm} onClose={closeModal}/>
+
+            {/* Sidebar */}
+            <div className="w-64 bg-card border-r border-white/10 hidden md:flex flex-col flex-shrink-0">
+                <div className="h-16 flex items-center px-6 border-b border-white/10">
+                    <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">Admin Panel</span>
+                </div>
+                <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+                    {[
+                        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+                        { id: 'comics', label: 'Truyện tranh', icon: BookOpen },
+                        { id: 'comments', label: 'Bình luận', icon: MessageSquare },
+                        { id: 'genres', label: 'Thể loại', icon: List },
+                        { id: 'media', label: 'Thư viện ảnh', icon: ImageIcon },
+                        { id: 'ads', label: 'Quảng cáo', icon: LayoutDashboard },
+                        { id: 'users', label: 'Thành viên', icon: Users },
+                        { id: 'reports', label: 'Báo lỗi', icon: Flag },
+                        { id: 'static', label: 'Trang tĩnh', icon: FileText },
+                        { id: 'settings', label: 'Cấu hình', icon: Settings },
+                        { id: 'leech_configs', label: 'Cấu hình Leech', icon: Download }
+                    ].map(item => (
+                        <button key={item.id} onClick={() => setActiveTab(item.id as any)} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === item.id ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                            <item.icon size={18} /> {item.label}
+                        </button>
+                    ))}
+                </nav>
+                <div className="p-4 border-t border-white/10">
+                    <Link to="/" className="flex items-center gap-2 text-slate-400 hover:text-white mb-4 text-sm px-2"><ArrowLeft size={16}/> Về trang chủ</Link>
+                    <button onClick={AuthService.logout} className="flex items-center gap-2 text-red-400 hover:text-red-300 text-sm px-2 font-medium w-full"><LogOut size={16}/> Đăng xuất</button>
+                </div>
+            </div>
+
+            {/* Mobile Header */}
              <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-card border-b border-white/10 flex items-center justify-between px-4 z-50">
                 <span className="font-bold text-white">Admin Panel</span>
                 <button onClick={AuthService.logout}><LogOut size={20} className="text-red-400"/></button>
-             </div>
+            </div>
 
-             {/* Content */}
-             <div className="flex-1 overflow-y-auto h-screen relative pt-16 md:pt-0">
-                 <div className="p-4 md:p-8 max-w-full mx-auto">
-                    {AuthService.hasPermission(activeTab) ? (
-                        <>
-                            {activeTab === 'dashboard' && renderDashboard()}
-                            {activeTab === 'comics' && renderComicsTab()}
-                            {activeTab === 'genres' && renderGenresTab()}
-                            {activeTab === 'ads' && renderAdsTab()}
-                            {activeTab === 'users' && renderUsersTab()}
-                            {activeTab === 'reports' && renderReportsTab()}
-                            {activeTab === 'comments' && renderCommentsTab()}
-                            {activeTab === 'settings' && renderSettingsTab()}
-                            {activeTab === 'static' && renderStaticTab()}
-                            {activeTab === 'media' && renderMediaTab()}
-                            {activeTab === 'leech_configs' && renderLeechConfigsTab()}
-                        </>
-                    ) : (
-                        <div className="text-center text-slate-500">Bạn không có quyền truy cập mục này.</div>
-                    )}
-                 </div>
-             </div>
-             
-             {renderLeechJobsPanel()}
+
+            {/* Main Content */}
+            <div className="flex-1 overflow-y-auto h-screen relative pt-16 md:pt-0">
+                <div className="p-4 md:p-8 max-w-full mx-auto">
+                    {activeTab === 'dashboard' && renderDashboard()}
+                    {activeTab === 'comics' && renderComicsTab()}
+                    {activeTab === 'genres' && renderGenresTab()}
+                    {activeTab === 'ads' && renderAdsTab()}
+                    {activeTab === 'users' && renderUsersTab()}
+                    {activeTab === 'reports' && renderReportsTab()}
+                    {activeTab === 'comments' && renderCommentsTab()}
+                    {activeTab === 'settings' && renderSettingsTab()}
+                    {activeTab === 'static' && renderStaticTab()}
+                    {activeTab === 'media' && renderMediaTab()}
+                    {activeTab === 'leech_configs' && renderLeechConfigsTab()}
+                </div>
+            </div>
         </div>
     );
 };

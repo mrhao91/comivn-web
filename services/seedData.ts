@@ -19,7 +19,10 @@ export const DEFAULT_THEME: ThemeConfig = {
         showSlider: true, 
         showHot: true, 
         showNew: true,
-        homeGenres: [] // New: Default empty array for sortable home genres
+        homeGenres: [], // New: Default empty array for sortable home genres
+        hotComicsCount: 6,
+        newComicsCount: 12,
+        genreComicsCount: 6,
     },
     headerMenu: [
         { label: 'Trang chủ', url: '/' },
@@ -27,16 +30,17 @@ export const DEFAULT_THEME: ThemeConfig = {
     ],
     footerMenu: [
         { label: 'Điều khoản', url: '/p/dieu-khoan' },
-        { label: 'Chính sách riêng tư', url: '/p/chinh-sac-rieng-tu' },
+        { label: 'Chính sách riêng tư', url: '/p/chinh-sach-rieng-tu' },
         { label: 'Liên hệ', url: '/p/lien-he' }
     ],
     siteName: 'ComiVN',
     favicon: '',
+    loginUrl: '/login',
     homeMetaTitle: 'ComiVN - Đọc Truyện Tranh Online Hay Nhất',
     homeMetaDescription: 'Website đọc truyện tranh online miễn phí chất lượng cao.',
     homeMetaKeywords: 'truyen tranh, manga, ngon tinh',
     categoriesMetaTitle: 'Danh Sách Thể Loại Truyện - ComiVN',
-    categoriesMetaDescription: 'Khám phá kho truyện tranh đa dạng thể loại tại ComiVN.',
+    categoriesMetaDescription: 'Khám phá hàng ngàn đầu truyện hấp dẫn đa dạng thể loại.',
     categoriesMetaKeywords: 'the loai truyen, truyen hanh dong, truyen ngon tinh'
 };
 

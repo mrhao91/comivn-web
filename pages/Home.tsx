@@ -43,14 +43,21 @@ const Home: React.FC = () => {
     return <div className="min-h-screen flex items-center justify-center text-primary">Đang tải...</div>;
   }
 
-  const sliderComics = comics.slice(0, 10);
-  const latestComics = comics; 
+  // Sắp xếp truyện hot (lượt xem cao nhất) và truyện mới (đã được sắp xếp từ API)
+  const hotComics = [...comics].sort((a, b) => b.views - a.views);
+  const latestComics = comics; // API đã trả về sắp xếp theo ngày cập nhật mới nhất
+  const sliderComics = hotComics.slice(0, 10); // Slider hiển thị truyện hot nhất
+  
   const homeGenres = theme?.homeLayout?.homeGenres || [];
   
   const showSlider = theme?.homeLayout?.showSlider ?? true;
   const showHot = theme?.homeLayout?.showHot ?? true;
   const showNew = theme?.homeLayout?.showNew ?? true;
   const currentLayout = theme?.siteLayout || 'classic';
+
+  const hotCount = theme?.homeLayout?.hotComicsCount || 6;
+  const newCount = theme?.homeLayout?.newComicsCount || (currentLayout === 'minimalist' ? 9 : 12);
+  const genreCount = theme?.homeLayout?.genreComicsCount || 6;
 
   const renderComicsGrid = (title: string, icon: React.ReactNode, comicsList: Comic[], viewAllLink: string) => {
     if (comicsList.length === 0) return null;
@@ -184,17 +191,17 @@ const Home: React.FC = () => {
         <div className={`container mx-auto px-4 space-y-12 ${!showSlider || currentLayout === 'minimalist' ? 'mt-10' : ''}`}>
             <AdDisplay position="home_header" />
 
-            {showHot && renderComicsGrid("Truyện Hot", <Flame className="text-orange-500" />, comics.slice(0, 6), "#")}
+            {showHot && renderComicsGrid("Truyện Hot", <Flame className="text-orange-500" />, hotComics.slice(0, hotCount), "#")}
             
             <AdDisplay position="home_middle" />
             
-            {showNew && renderComicsGrid("Mới Cập Nhật", <Clock className="text-blue-500" />, latestComics.slice(0, currentLayout === 'minimalist' ? 9 : 12), "#")}
+            {showNew && renderComicsGrid("Mới Cập Nhật", <Clock className="text-blue-500" />, latestComics.slice(0, newCount), "#")}
 
              {homeGenres.map(genre => renderComicsGrid(
                  genre.name, 
                  <List />,
-                 comics.filter(c => c.genres.includes(genre.name)).slice(0, currentLayout === 'minimalist' ? 6 : 6),
-                 `/categories?genre=${genre.name}`
+                 comics.filter(c => c.genres.includes(genre.name)).slice(0, genreCount),
+                 `/categories?genre=${genre.slug}`
              ))}
 
              <AdDisplay position="home_bottom" />

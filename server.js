@@ -437,6 +437,10 @@ api.post('/genres', authMiddleware, (req, res) => {
     const {id,name,slug,isShowHome} = req.body;
     safeQuery(`INSERT INTO genres (id,name,slug,isShowHome) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE name=?,slug=?,isShowHome=?`, [id,name,slug,isShowHome?1:0,name,slug,isShowHome?1:0], res, () => res.json({message:'ok'}));
 });
+api.delete('/genres/:id', authMiddleware, (req, res) => {
+    safeQuery('DELETE FROM genres WHERE id=?', [req.params.id], res, () => res.json({ message: 'ok' }));
+});
+
 
 // --- MEDIA ---
 api.get('/media/:path(*)?', authMiddleware, (req, res) => {
@@ -530,6 +534,9 @@ api.get('/reports', authMiddleware, (req, res) => {
 api.post('/reports', (req, res) => {
     safeQuery('INSERT INTO reports (comicId, chapterId, message) VALUES (?, ?, ?)', [req.body.comicId, req.body.chapterId, req.body.message], res, () => res.json({message: 'ok'}));
 });
+api.delete('/reports/:id', authMiddleware, (req, res) => {
+    safeQuery('DELETE FROM reports WHERE id=?', [req.params.id], res, () => res.json({ message: 'ok' }));
+});
 
 // --- ADS ---
 api.get('/ads', (req, res) => safeQuery('SELECT * FROM ads', [], res, r => res.json(r.map(a => ({...a, isActive: a.isActive === 1})))));
@@ -583,6 +590,29 @@ api.delete('/comments/:id', authMiddleware, (req, res) => {
     safeQuery('DELETE FROM comments WHERE id=?', [req.params.id], res, () => res.json({message: 'ok'}));
 });
 
+// --- STATIC PAGES ---
+api.get('/static-pages', (req, res) => safeQuery('SELECT * FROM static_pages', [], res, r => res.json(r)));
+api.get('/static-pages/:slug', (req, res) => {
+    safeQuery('SELECT * FROM static_pages WHERE slug = ?', [req.params.slug], res, r => {
+        if (r.length > 0) res.json(r[0]);
+        else res.status(404).json({ error: 'Not found' });
+    });
+});
+api.post('/static-pages', authMiddleware, (req, res) => {
+    const { slug, title, content, metaTitle, metaDescription, metaKeywords } = req.body;
+    if (!slug || !title) return res.status(400).json({ error: 'Slug and title are required' });
+    const sql = `INSERT INTO static_pages (slug, title, content, metaTitle, metaDescription, metaKeywords) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE title=?, content=?, metaTitle=?, metaDescription=?, metaKeywords=?`;
+    const params = [slug, title, content, metaTitle, metaDescription, metaKeywords, title, content, metaTitle, metaDescription, metaKeywords];
+    safeQuery(sql, params, res, () => res.json({ message: 'ok' }));
+});
+
+api.delete('/static-pages/:slug', authMiddleware, (req, res) => {
+    const { slug } = req.params;
+    if (!slug) return res.status(400).json({ error: 'Slug is required' });
+    safeQuery('DELETE FROM static_pages WHERE slug = ?', [slug], res, () => res.json({ message: 'ok' }));
+});
+
+
 // --- LEECH CONFIGS ---
 api.get('/leech-configs', authMiddleware, (req, res) => {
     safeQuery('SELECT * FROM leech_config ORDER BY name', [], res, (r) => {
@@ -604,31 +634,46 @@ api.delete('/leech-configs/:id', authMiddleware, (req, res) => {
 // --- LEECH PROXY ---
 api.post('/leech', async (req, res) => {
     const { url } = req.body;
-    if (!url) return res.json({ success: false, error: 'missing url' });
+    if (!url) {
+        return res.status(400).json({ error: 'Missing URL' });
+    }
     try {
-        const response = await requestUrl(url);
-        if (response.text.includes('Attention Required!') || response.text.includes('Just a moment...') || response.text.includes('Checking your browser')) {
-            return res.json({ success: false, error: 'Cloudflare protected', html: response.text });
+        const response = await requestUrl(url, { headers: { Referer: url } });
+        if (response.statusCode === 200) {
+            res.json({ success: true, html: response.text });
+        } else {
+            let errorMsg = `HTTP Error ${response.statusCode}`;
+            if (response.statusCode === 403 || response.statusCode === 503) {
+                 errorMsg += ' (Possibly blocked by Cloudflare/Bot protection)';
+                 // Also return the partial HTML if available
+                 return res.json({ success: false, error: errorMsg, html: response.text });
+            }
+            res.json({ success: false, error: errorMsg });
         }
-        res.json({ success: true, html: response.text });
     } catch (error) {
-        logError('LEECH_API', error);
+        logError('LEECH', error);
         res.json({ success: false, error: error.message });
     }
 });
 
+// ==========================================
+// 4. SERVE FRONTEND & START SERVER
+// ==========================================
 app.use('/v1', api);
 
-// Serve Frontend
-const distPath = path.join(__dirname, 'dist');
-if (fs.existsSync(distPath)) {
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-        if (req.path.startsWith('/v1')) return res.status(404).json({error: '404'});
-        res.sendFile(path.join(distPath, 'index.html'));
-    });
-} else {
-    app.get('/', (req, res) => res.send('Backend Server is Running!'));
-}
+// Serve static files from the 'dist' directory
+const staticPath = path.join(__dirname, 'dist');
+app.use(express.static(staticPath));
 
-app.listen(PORT, () => console.log(`🚀 Server running on port: ${PORT}`));
+// For any other request, serve index.html for client-side routing
+app.get('*', (req, res) => {
+    res.sendFile(path.join(staticPath, 'index.html'));
+});
+
+http.createServer(app).listen(PORT, () => {
+    console.log(`🚀 Server is listening on http://localhost:${PORT}`);
+    if (!db) {
+        console.warn('⚠️  Database is NOT connected. API will not work correctly.');
+        console.warn('👉  Check your .env file and ensure MySQL is running.');
+    }
+});

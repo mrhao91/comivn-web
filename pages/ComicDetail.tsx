@@ -288,7 +288,7 @@ const ComicDetail: React.FC = () => {
                                  value={chapterSearchQuery}
                                  onChange={(e) => setChapterSearchQuery(e.target.value)}
                                  placeholder="Tìm chương (ví dụ: 1169, chap 1169)..."
-                                 className="w-full bg-dark border border-white/10 rounded-lg py-2 px-4 pl-10 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all"
+                                 className="w-full bg-[#121212] border border-white/10 rounded-lg py-2 px-4 pl-10 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all"
                              />
                              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
                         </div>
@@ -337,21 +337,21 @@ const ComicDetail: React.FC = () => {
                                     onChange={(e) => setCommenterName(e.target.value)}
                                     placeholder="Tên của bạn (*)"
                                     required
-                                    className="w-full bg-dark border border-white/10 rounded-xl p-3 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all"
+                                    className="w-full bg-[#121212] border border-white/10 rounded-xl p-3 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all"
                                 />
                                 <input 
                                     type="email"
                                     value={commenterEmail}
                                     onChange={(e) => setCommenterEmail(e.target.value)}
                                     placeholder="Email (tùy chọn)"
-                                    className="w-full bg-dark border border-white/10 rounded-xl p-3 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all"
+                                    className="w-full bg-[#121212] border border-white/10 rounded-xl p-3 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all"
                                 />
                             </div>
                             <textarea 
                                 value={newComment}
                                 onChange={(e) => setNewComment(e.target.value)}
                                 placeholder="Viết bình luận của bạn (Tối thiểu 10 ký tự)..."
-                                className="w-full bg-dark border border-white/10 rounded-xl p-3 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all resize-none min-h-[100px]"
+                                className="w-full bg-[#121212] border border-white/10 rounded-xl p-3 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all resize-none min-h-[100px]"
                             ></textarea>
                             <div className="absolute bottom-3 right-3">
                                 <button 
