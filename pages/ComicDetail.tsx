@@ -6,7 +6,7 @@ import { getComicById, getComics } from '../services/mockData';
 import { Comic, Comment } from '../types';
 import SEOHead from '../components/SEOHead';
 import AdDisplay from '../components/AdDisplay';
-import { Eye, BookOpen, Clock, List, Star, Send, User, MessageSquare, ChevronLeft, ChevronRight, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
+import { Eye, BookOpen, Clock, List, Star, Send, User, MessageSquare, ChevronLeft, ChevronRight, Calendar, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { AuthService } from '../services/auth';
 import AppModal from '../components/AppModal';
 
@@ -23,11 +23,16 @@ const ComicDetail: React.FC = () => {
 
   // State cho bình luận
   const [newComment, setNewComment] = useState('');
+  const [commenterName, setCommenterName] = useState('');
+  const [commenterEmail, setCommenterEmail] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
   const user = AuthService.getUser();
 
   // State cho xem thêm/thu gọn mô tả
   const [isDescExpanded, setIsDescExpanded] = useState(false);
+  
+  // NEW: State cho tìm kiếm chương
+  const [chapterSearchQuery, setChapterSearchQuery] = useState('');
 
   // GIỚI HẠN KÝ TỰ MÔ TẢ
   const DESC_LIMIT = 300; 
@@ -74,6 +79,7 @@ const ComicDetail: React.FC = () => {
                 setLoading(false);
                 setRecPage(0); // Reset trang slide khi đổi truyện
                 setIsDescExpanded(false); // Reset trạng thái xem thêm
+                setChapterSearchQuery(''); // NEW: Reset tìm kiếm chương
                 window.scrollTo(0, 0);
             }
         }
@@ -83,13 +89,13 @@ const ComicDetail: React.FC = () => {
 
   const handlePostComment = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!newComment.trim() || !id) return;
+      if (!newComment.trim() || !commenterName.trim() || !id) return;
 
       setSubmittingComment(true);
       const comment: Comment = {
           id: `cmt-${Date.now()}`,
           comicId: id,
-          userName: user ? (user.username || 'Thành viên') : 'Khách',
+          userName: commenterName,
           content: newComment,
           date: new Date().toISOString(),
           isApproved: false, // Mặc định chưa duyệt
@@ -99,6 +105,8 @@ const ComicDetail: React.FC = () => {
       await DataProvider.saveComment(comment);
       
       setNewComment('');
+      setCommenterName('');
+      setCommenterEmail('');
       setSubmittingComment(false);
       setModalMessage("Bình luận của bạn đã được gửi và đang chờ Admin duyệt.");
       setModalOpen(true);
@@ -126,11 +134,7 @@ const ComicDetail: React.FC = () => {
 
       if (!shouldTruncate || isDescExpanded) {
           return (
-              <div className={`${textClass} animate-in fade-in duration-300`}>
-                  {description.split('\n').map((line, i) => (
-                      <p key={i} className="mb-1 last:mb-0">{line}</p>
-                  ))}
-              </div>
+              <div className={`${textClass} animate-in fade-in duration-300`} dangerouslySetInnerHTML={{ __html: description }} />
           );
       }
 
@@ -141,12 +145,21 @@ const ComicDetail: React.FC = () => {
 
       return (
           <div className={`${textClass} relative`}>
-              <p>{truncatedText}...</p>
+              <div dangerouslySetInnerHTML={{ __html: truncatedText + '...' }} />
               {/* Fade effect match with header background */}
-              <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-darker/50 to-transparent pointer-events-none"></div>
+              <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-card to-transparent pointer-events-none"></div>
           </div>
       );
   };
+
+  // NEW: Lọc danh sách chương dựa trên query
+  const filteredChapters = comic.chapters.filter(chapter => {
+      const query = chapterSearchQuery.toLowerCase().trim();
+      if (!query) return true;
+      const title = chapter.title.toLowerCase();
+      const number = String(chapter.number);
+      return title.includes(query) || number.includes(query);
+  });
 
   return (
     <div className="pb-10 bg-darker min-h-screen">
@@ -237,10 +250,10 @@ const ComicDetail: React.FC = () => {
                             )}
                         </div>
                     </div>
-
-                    {/* DESCRIPTION */}
+                    
+                    {/* MOVED: DESCRIPTION SECTION */}
                     <div className="bg-white/5 rounded-xl border border-white/5 p-4 text-left">
-                         <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
+                        <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
                             <BookOpen size={18} className="text-primary"/> Nội dung
                         </h3>
                         {renderDescription()}
@@ -267,19 +280,32 @@ const ComicDetail: React.FC = () => {
                             <span className="flex items-center gap-2"><List className="text-primary"/> Danh sách chương</span>
                             <span className="text-sm font-normal text-slate-500">{comic.chapters.length} chương</span>
                         </h2>
+                        
+                        {/* NEW: Chapter Search */}
+                        <div className="relative mb-4">
+                             <input
+                                 type="text"
+                                 value={chapterSearchQuery}
+                                 onChange={(e) => setChapterSearchQuery(e.target.value)}
+                                 placeholder="Tìm chương (ví dụ: 1169, chap 1169)..."
+                                 className="w-full bg-dark border border-white/10 rounded-lg py-2 px-4 pl-10 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all"
+                             />
+                             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                        </div>
+
                         <div className="max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
                             <div className="grid grid-cols-1 gap-2">
-                                {comic.chapters.map((chapter, idx) => (
+                                {filteredChapters.map((chapter, idx) => (
                                     <Link 
                                         key={chapter.id} 
                                         to={getChapterLink(chapter.number)}
-                                        className={`flex items-center justify-between p-3 rounded-lg transition-all border border-transparent ${idx === 0 ? 'bg-primary/10 border-primary/20' : 'hover:bg-white/5 hover:border-white/10 bg-dark/50'}`}
+                                        className={`flex items-center justify-between p-3 rounded-lg transition-all border border-transparent ${idx === 0 && chapterSearchQuery === '' ? 'bg-primary/10 border-primary/20' : 'hover:bg-white/5 hover:border-white/10 bg-dark/50'}`}
                                     >
                                         <div className="flex items-center gap-3">
-                                            <span className={`text-sm font-medium ${idx === 0 ? 'text-primary' : 'text-slate-300'}`}>
+                                            <span className={`text-sm font-medium ${idx === 0 && chapterSearchQuery === '' ? 'text-primary' : 'text-slate-300'}`}>
                                                 {chapter.title}
                                             </span>
-                                            {idx === 0 && <span className="px-1.5 py-0.5 bg-red-500 text-white text-[10px] rounded font-bold uppercase">New</span>}
+                                            {idx === 0 && chapterSearchQuery === '' && <span className="px-1.5 py-0.5 bg-red-500 text-white text-[10px] rounded font-bold uppercase">New</span>}
                                         </div>
                                         <span className="text-xs text-slate-500 flex items-center gap-1">
                                             <Calendar size={12}/>
@@ -288,8 +314,10 @@ const ComicDetail: React.FC = () => {
                                     </Link>
                                 ))}
                             </div>
-                            {comic.chapters.length === 0 && (
-                                <div className="p-8 text-center text-slate-500 italic">Hiện chưa có chương nào được đăng tải.</div>
+                            {filteredChapters.length === 0 && (
+                                <div className="p-8 text-center text-slate-500 italic">
+                                    {chapterSearchQuery ? 'Không tìm thấy chương phù hợp.' : 'Hiện chưa có chương nào được đăng tải.'}
+                                </div>
                             )}
                         </div>
                     </section>
@@ -302,16 +330,33 @@ const ComicDetail: React.FC = () => {
                         
                         {/* Input Form */}
                         <form onSubmit={handlePostComment} className="mb-8 relative">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <input 
+                                    type="text"
+                                    value={commenterName}
+                                    onChange={(e) => setCommenterName(e.target.value)}
+                                    placeholder="Tên của bạn (*)"
+                                    required
+                                    className="w-full bg-dark border border-white/10 rounded-xl p-3 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all"
+                                />
+                                <input 
+                                    type="email"
+                                    value={commenterEmail}
+                                    onChange={(e) => setCommenterEmail(e.target.value)}
+                                    placeholder="Email (tùy chọn)"
+                                    className="w-full bg-dark border border-white/10 rounded-xl p-3 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all"
+                                />
+                            </div>
                             <textarea 
                                 value={newComment}
                                 onChange={(e) => setNewComment(e.target.value)}
                                 placeholder="Viết bình luận của bạn (Tối thiểu 10 ký tự)..."
-                                className="w-full bg-dark/50 border border-white/10 rounded-xl p-4 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all resize-none min-h-[100px]"
+                                className="w-full bg-dark border border-white/10 rounded-xl p-3 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all resize-none min-h-[100px]"
                             ></textarea>
                             <div className="absolute bottom-3 right-3">
                                 <button 
                                     type="submit" 
-                                    disabled={submittingComment || !newComment.trim()}
+                                    disabled={submittingComment || !newComment.trim() || !commenterName.trim()}
                                     className="bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors flex items-center gap-2"
                                 >
                                     {submittingComment ? 'Đang gửi...' : <><Send size={14}/> Gửi bình luận</>}

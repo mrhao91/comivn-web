@@ -7,7 +7,8 @@ export default defineConfig(({ mode }) => {
   // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
   // We explicitly cast process to any here for the config file context, 
   // as tsconfig doesn't fully apply to vite.config.ts in some setups without ts-node.
-  const env = loadEnv(mode, process.cwd(), '');
+  // Fix: Cast process to any to resolve "Property 'cwd' does not exist on type 'Process'" error
+  const env = loadEnv(mode, (process as any).cwd(), '');
 
   return {
     plugins: [react()],

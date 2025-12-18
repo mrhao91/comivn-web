@@ -12,15 +12,22 @@ export const DEFAULT_THEME: ThemeConfig = {
     headerText: '#e2e8f0',
     footerBg: '#292524',
     footerText: '#94a3b8',
+    
+    siteLayout: 'classic', // NEW: Default layout
 
-    homeLayout: { showSlider: true, showHot: true, showNew: true },
+    homeLayout: { 
+        showSlider: true, 
+        showHot: true, 
+        showNew: true,
+        homeGenres: [] // New: Default empty array for sortable home genres
+    },
     headerMenu: [
         { label: 'Trang chủ', url: '/' },
         { label: 'Thể loại', url: '/categories' }
     ],
     footerMenu: [
         { label: 'Điều khoản', url: '/p/dieu-khoan' },
-        { label: 'Chính sách riêng tư', url: '/p/chinh-sach-rieng-tu' },
+        { label: 'Chính sách riêng tư', url: '/p/chinh-sac-rieng-tu' },
         { label: 'Liên hệ', url: '/p/lien-he' }
     ],
     siteName: 'ComiVN',

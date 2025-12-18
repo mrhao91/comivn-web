@@ -1,6 +1,10 @@
 
 const mysql = require('mysql2');
 const dotenv = require('dotenv');
+const crypto = require('crypto');
+
+// Helper for MD5 hashing
+const md5 = (str) => crypto.createHash('md5').update(str).digest('hex');
 
 dotenv.config();
 
@@ -113,6 +117,7 @@ const createTables = async () => {
             username VARCHAR(50) NOT NULL,
             password VARCHAR(255) NOT NULL,
             role VARCHAR(20) DEFAULT 'editor',
+            permissions TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ${tableOptions}`,
 
@@ -142,8 +147,23 @@ const createTables = async () => {
             views INT DEFAULT 0
         ) ${tableOptions}`,
 
-        // Dữ liệu mẫu Admin
-        `INSERT IGNORE INTO users (id, username, password, role) VALUES (1, 'admin', '123456', 'admin')`,
+        // Bảng Cấu hình Leech
+        `CREATE TABLE IF NOT EXISTS leech_config (
+            id VARCHAR(255) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            baseUrl VARCHAR(255),
+            comicTitleSelector VARCHAR(255),
+            comicCoverSelector VARCHAR(255),
+            comicAuthorSelector VARCHAR(255),
+            uploadCoverImage BOOLEAN DEFAULT FALSE,
+            comicDescriptionSelector VARCHAR(255),
+            chapterLinkSelector VARCHAR(255),
+            chapterImageSelector VARCHAR(255),
+            imageSrcAttribute VARCHAR(255)
+        ) ${tableOptions}`,
+
+        // Dữ liệu mẫu Admin với mật khẩu MD5
+        `INSERT IGNORE INTO users (id, username, password, role, permissions) VALUES (1, 'admin', '${md5('123456')}', 'admin', NULL)`,
         
         // Dữ liệu mẫu Settings
         `INSERT IGNORE INTO settings (id, theme_config) VALUES (1, '{}')`

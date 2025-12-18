@@ -1,5 +1,5 @@
 
-import { Comic, Genre, Chapter, Page, AdConfig, Comment, StaticPage, ThemeConfig, User, Report, MediaFile, Analytics } from '../types';
+import { Comic, Genre, Chapter, Page, AdConfig, Comment, StaticPage, ThemeConfig, User, Report, MediaFile, Analytics, LeechConfig } from '../types';
 import { StorageService } from './storage';
 import { API_BASE_URL, USE_MOCK_DATA } from './config';
 
@@ -75,12 +75,19 @@ const ApiService = {
     approveComment: async (id: string): Promise<boolean> => !!(await fetchApi(`/comments/${id}/approve`, { method: 'PUT' })),
     deleteComment: async (id: string): Promise<boolean> => !!(await fetchApi(`/comments/${id}`, { method: 'DELETE' })),
 
-    uploadImage: async (file: File, token?: string): Promise<string> => {
+    uploadImage: async (file: File, folder?: string, chapterNumber?: number, index?: number): Promise<string> => {
         const formData = new FormData();
         formData.append('image', file);
         const tokenStr = localStorage.getItem(AUTH_KEY);
+    
+        const params = new URLSearchParams();
+        if (folder) params.set('folder', folder);
+        if (chapterNumber !== undefined) params.set('chapterNumber', String(chapterNumber));
+        if (index !== undefined) params.set('index', String(index));
+        const queryString = params.toString();
+    
         try {
-            const res = await fetch(`${API_BASE_URL}/upload`, {
+            const res = await fetch(`${API_BASE_URL}/upload${queryString ? `?${queryString}` : ''}`, {
                 method: 'POST',
                 headers: tokenStr ? { 'Authorization': `Bearer ${tokenStr}` } : {},
                 body: formData
@@ -91,6 +98,14 @@ const ApiService = {
             console.error(e);
             return '';
         }
+    },
+
+    uploadImageFromUrl: async (imageUrl: string, folder?: string, chapterNumber?: number, index?: number): Promise<string> => {
+        const res = await fetchApi('/upload-url', {
+            method: 'POST',
+            body: JSON.stringify({ url: imageUrl, folder, chapterNumber, index })
+        });
+        return res?.success ? res.url : '';
     },
 
     login: async (username: string, password: string): Promise<{ success: boolean; user?: User; error?: string }> => {
@@ -105,8 +120,11 @@ const ApiService = {
     sendReport: async (comicId: string, chapterId: string, message: string): Promise<boolean> => !!(await fetchApi('/reports', { method: 'POST', body: JSON.stringify({comicId, chapterId, message}) })),
     deleteReport: async (id: string, token?: string): Promise<boolean> => !!(await fetchApi(`/reports/${id}`, { method: 'DELETE' })),
 
-    getMedia: async (): Promise<MediaFile[]> => (await fetchApi('/media')) || [],
-    deleteMedia: async (name: string): Promise<boolean> => !!(await fetchApi(`/media/${name}`, { method: 'DELETE' })),
+    getMedia: async (path: string = ''): Promise<MediaFile[]> => (await fetchApi(`/media/${path}`)) || [],
+    deleteMedia: async (filePath: string): Promise<boolean> => !!(await fetchApi(`/media`, { 
+        method: 'DELETE',
+        body: JSON.stringify({ filePath })
+    })),
 
     incrementView: async (id: string): Promise<boolean> => {
         await fetchApi(`/comics/${id}/view`, { method: 'POST' });
@@ -132,6 +150,11 @@ const ApiService = {
         }
     },
     
+    // NEW: Leech Config API
+    getLeechConfigs: async (): Promise<LeechConfig[]> => (await fetchApi('/leech-configs')) || [],
+    saveLeechConfig: async (config: LeechConfig): Promise<boolean> => !!(await fetchApi('/leech-configs', { method: 'POST', body: JSON.stringify(config) })),
+    deleteLeechConfig: async (id: string): Promise<boolean> => !!(await fetchApi(`/leech-configs/${id}`, { method: 'DELETE' })),
+
     leechScan: async (url: string): Promise<any> => ({ success: false }),
     leechChapterContent: async (url: string): Promise<any> => ({ success: false })
 };

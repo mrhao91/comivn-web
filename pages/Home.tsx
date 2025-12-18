@@ -4,7 +4,7 @@ import { getComics } from '../services/mockData';
 import { DataProvider } from '../services/dataProvider';
 import { Comic, Genre, ThemeConfig } from '../types';
 import ComicCard from '../components/ComicCard';
-import { ChevronRight, Flame, Clock, ChevronLeft } from 'lucide-react';
+import { ChevronRight, Flame, Clock, ChevronLeft, List, Eye } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AdDisplay from '../components/AdDisplay';
 import SEOHead from '../components/SEOHead';
@@ -12,30 +12,26 @@ import { DEFAULT_THEME } from '../services/seedData';
 
 const Home: React.FC = () => {
   const [comics, setComics] = useState<Comic[]>([]);
-  const [genres, setGenres] = useState<Genre[]>([]);
   const [theme, setTheme] = useState<ThemeConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentSlide, setCurrentSlide] = useState(0);
 
   useEffect(() => {
     const fetchData = async () => {
-      const [comicsData, genresData, themeData] = await Promise.all([
-          getComics(),
-          DataProvider.getGenres(),
+      const [comicsData, themeData] = await Promise.all([
+          DataProvider.getComics(),
           DataProvider.getTheme()
       ]);
       setComics(comicsData);
-      setGenres(genresData);
       setTheme(themeData && Object.keys(themeData).length > 0 ? { ...DEFAULT_THEME, ...themeData } : DEFAULT_THEME);
       setLoading(false);
     };
     fetchData();
   }, []);
 
-  // Slider Auto-play
   useEffect(() => {
       const interval = setInterval(() => {
-          setCurrentSlide((prev) => (prev === 9 ? 0 : prev + 1)); // Loop top 10
+          setCurrentSlide((prev) => (prev === 9 ? 0 : prev + 1));
       }, 5000);
       return () => clearInterval(interval);
   }, []);
@@ -43,22 +39,65 @@ const Home: React.FC = () => {
   const nextSlide = () => setCurrentSlide((prev) => (prev === 9 ? 0 : prev + 1));
   const prevSlide = () => setCurrentSlide((prev) => (prev === 0 ? 9 : prev - 1));
 
-  if (loading) {
+  if (loading || !theme) {
     return <div className="min-h-screen flex items-center justify-center text-primary">Đang tải...</div>;
   }
 
   const sliderComics = comics.slice(0, 10);
   const latestComics = comics; 
-  const homeGenres = genres.filter(g => g.isShowHome);
-
-  // Configuration Flags
+  const homeGenres = theme?.homeLayout?.homeGenres || [];
+  
   const showSlider = theme?.homeLayout?.showSlider ?? true;
   const showHot = theme?.homeLayout?.showHot ?? true;
   const showNew = theme?.homeLayout?.showNew ?? true;
+  const currentLayout = theme?.siteLayout || 'classic';
+
+  const renderComicsGrid = (title: string, icon: React.ReactNode, comicsList: Comic[], viewAllLink: string) => {
+    if (comicsList.length === 0) return null;
+
+    return (
+        <div>
+            <div className="flex items-center justify-between mb-6 border-l-4 border-primary pl-4">
+                <h2 className="text-xl md:text-2xl font-bold flex items-center gap-2 text-white">
+                    {icon} {title}
+                </h2>
+                <Link to={viewAllLink} className="text-sm text-slate-400 hover:text-primary flex items-center gap-1">
+                    Xem thêm <ChevronRight size={16} />
+                </Link>
+            </div>
+            {currentLayout === 'minimalist' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {comicsList.map(comic => (
+                        <Link to={`/truyen/${comic.slug || comic.id}`} key={comic.id} className="group bg-card/50 hover:bg-card border border-transparent hover:border-white/10 p-3 rounded-lg flex gap-4 transition-colors">
+                            <div className="flex-shrink-0 w-20 h-[115px] rounded-md overflow-hidden">
+                                <img src={comic.coverImage} alt={comic.title} className="w-full h-full object-cover"/>
+                            </div>
+                            <div className="flex-1 flex flex-col justify-between py-1">
+                                <div>
+                                    <h3 className="font-bold text-sm text-slate-200 line-clamp-2 leading-tight group-hover:text-primary transition-colors">{comic.title}</h3>
+                                    <p className="text-xs text-slate-400 mt-1 line-clamp-1">{comic.genres.join(', ')}</p>
+                                </div>
+                                <div className="flex justify-between items-center mt-2 text-xs text-slate-500">
+                                    <span>{comic.chapters[0] ? `Chap ${comic.chapters[0].number}` : 'Mới'}</span>
+                                    <span className="flex items-center gap-1"><Eye size={12}/> {Math.floor(comic.views/1000)}K</span>
+                                </div>
+                            </div>
+                        </Link>
+                    ))}
+                </div>
+            ) : (
+                <div className={`grid grid-cols-2 ${currentLayout === 'modern' ? 'md:grid-cols-5' : 'md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'} gap-x-4 gap-y-8`}>
+                    {comicsList.map(comic => (
+                        <ComicCard key={comic.id} comic={comic} />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+  }
 
   return (
     <div className="pb-10">
-        {/* SEO */}
         <SEOHead 
             title={theme?.homeMetaTitle || 'ComiVN - Trang Chủ'} 
             description={theme?.homeMetaDescription}
@@ -66,9 +105,8 @@ const Home: React.FC = () => {
             url={window.location.href}
         />
 
-        {/* Hero Slider */}
-        {showSlider && (
-            <div className="relative w-full h-[50vh] md:h-[60vh] overflow-hidden mb-10 group">
+        {showSlider && currentLayout !== 'minimalist' && (
+            <div className={`relative w-full overflow-hidden mb-10 group ${currentLayout === 'modern' ? 'h-[70vh] md:h-[80vh]' : 'h-[50vh] md:h-[60vh]'}`}>
                 {sliderComics.map((comic, index) => {
                     const hasChapters = comic.chapters && comic.chapters.length > 0;
                     const readLink = hasChapters 
@@ -143,71 +181,21 @@ const Home: React.FC = () => {
             </div>
         )}
 
-        <div className={`container mx-auto px-4 space-y-12 ${!showSlider ? 'mt-10' : ''}`}>
+        <div className={`container mx-auto px-4 space-y-12 ${!showSlider || currentLayout === 'minimalist' ? 'mt-10' : ''}`}>
             <AdDisplay position="home_header" />
 
-            {showHot && (
-                <div>
-                    <div className="flex items-center justify-between mb-6">
-                        <h2 className="text-xl md:text-2xl font-bold flex items-center gap-2 text-white">
-                            <Flame className="text-orange-500" />
-                            Truyện Hot
-                        </h2>
-                        <a href="#" className="text-sm text-slate-400 hover:text-primary flex items-center gap-1">
-                            Xem tất cả <ChevronRight size={16} />
-                        </a>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-4 gap-y-8">
-                        {comics.slice(0, 6).map(comic => (
-                            <ComicCard key={`hot-${comic.id}`} comic={comic} />
-                        ))}
-                    </div>
-                </div>
-            )}
-
+            {showHot && renderComicsGrid("Truyện Hot", <Flame className="text-orange-500" />, comics.slice(0, 6), "#")}
+            
             <AdDisplay position="home_middle" />
+            
+            {showNew && renderComicsGrid("Mới Cập Nhật", <Clock className="text-blue-500" />, latestComics.slice(0, currentLayout === 'minimalist' ? 9 : 12), "#")}
 
-            {showNew && (
-                <div>
-                    <div className="flex items-center justify-between mb-6">
-                        <h2 className="text-xl md:text-2xl font-bold flex items-center gap-2 text-white">
-                            <Clock className="text-blue-500" />
-                            Mới Cập Nhật
-                        </h2>
-                        <a href="#" className="text-sm text-slate-400 hover:text-primary flex items-center gap-1">
-                            Xem tất cả <ChevronRight size={16} />
-                        </a>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-4 gap-y-8">
-                        {latestComics.slice(0, 12).map(comic => (
-                            <ComicCard key={comic.id} comic={comic} />
-                        ))}
-                    </div>
-                </div>
-            )}
-
-             {homeGenres.map(genre => {
-                 const genreComics = comics.filter(c => c.genres.includes(genre.name)).slice(0, 6);
-                 if (genreComics.length === 0) return null;
-
-                 return (
-                    <div key={genre.id}>
-                        <div className="flex items-center justify-between mb-6 border-l-4 border-primary pl-4">
-                            <h2 className="text-xl md:text-2xl font-bold flex items-center gap-2 text-white">
-                                {genre.name}
-                            </h2>
-                            <Link to={`/categories?genre=${genre.name}`} className="text-sm text-slate-400 hover:text-primary flex items-center gap-1">
-                                Xem thêm <ChevronRight size={16} />
-                            </Link>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-4 gap-y-8">
-                            {genreComics.map(comic => (
-                                <ComicCard key={`${genre.id}-${comic.id}`} comic={comic} />
-                            ))}
-                        </div>
-                    </div>
-                 );
-             })}
+             {homeGenres.map(genre => renderComicsGrid(
+                 genre.name, 
+                 <List />,
+                 comics.filter(c => c.genres.includes(genre.name)).slice(0, currentLayout === 'minimalist' ? 6 : 6),
+                 `/categories?genre=${genre.name}`
+             ))}
 
              <AdDisplay position="home_bottom" />
         </div>

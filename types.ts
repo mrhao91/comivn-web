@@ -28,6 +28,7 @@ export interface Comic {
   views: number;
   rating?: number; // Added to fix build error
   chapters: Chapter[];
+  chapterCount?: number;
   isRecommended?: boolean;
   slug?: string;
   metaTitle?: string;
@@ -86,11 +87,16 @@ export interface ThemeConfig {
     // Footer Styling
     footerBg?: string;
     footerText?: string;
+    
+    // NEW: Site Layout configuration
+    siteLayout?: 'classic' | 'modern' | 'minimalist';
 
     homeLayout: {
         showSlider: boolean;
         showHot: boolean;
         showNew: boolean;
+        // NEW: Sortable list of genres for homepage
+        homeGenres?: { name: string; slug: string }[];
     };
     headerMenu?: { label: string; url: string }[];
     footerMenu?: { label: string; url: string }[];
@@ -116,6 +122,7 @@ export interface User {
     username: string;
     password?: string;
     role: 'admin' | 'editor';
+    permissions?: string[];
 }
 
 export interface Report {
@@ -133,10 +140,38 @@ export interface MediaFile {
     url: string;
     size: number;
     created: string;
+    isDir: boolean;
 }
 
 export interface Analytics {
     totalViews: number;
     todayViews: number;
     monthViews: number;
+}
+
+// NEW: Leech Configuration type
+export interface LeechConfig {
+  id: string;
+  name: string;
+  baseUrl: string;
+  // Selectors for Comic page
+  comicTitleSelector: string;
+  comicCoverSelector: string;
+  comicAuthorSelector?: string;
+  uploadCoverImage?: boolean;
+  comicDescriptionSelector: string;
+  chapterLinkSelector: string;
+  // Selectors for Chapter page
+  chapterImageSelector: string;
+  imageSrcAttribute: string; // e.g., 'src,data-src'
+}
+
+export interface LeechJob {
+  id: string;
+  comicId: string;
+  comicTitle: string;
+  status: 'running' | 'completed' | 'failed';
+  progressText: string;
+  totalChapters: number;
+  completedChapters: number;
 }
