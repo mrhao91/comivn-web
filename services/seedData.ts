@@ -34,6 +34,7 @@ export const DEFAULT_THEME: ThemeConfig = {
         { label: 'Liên hệ', url: '/p/lien-he' }
     ],
     siteName: 'ComiVN',
+    logoUrl: '',
     favicon: '',
     loginUrl: '/login',
     homeMetaTitle: 'ComiVN - Đọc Truyện Tranh Online Hay Nhất',

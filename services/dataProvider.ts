@@ -1,4 +1,4 @@
-import { Comic, Genre, Chapter, Page, AdConfig, Comment, StaticPage, ThemeConfig, User, Report, MediaFile, Analytics, LeechConfig } from '../types';
+import { Comic, Genre, Chapter, Page, AdConfig, Comment, StaticPage, ThemeConfig, User, Report, MediaFile, Analytics, LeechConfig, SystemStats } from '../types';
 import { StorageService } from './storage';
 import { API_BASE_URL, USE_MOCK_DATA } from './config';
 
@@ -51,7 +51,7 @@ const ApiService = {
     deleteGenre: async (id: string, token?: string): Promise<boolean> => !!(await fetchApi(`/genres/${id}`, { method: 'DELETE' })),
     
     saveChapter: async (chapter: Chapter, pages: Page[], token?: string): Promise<boolean> => !!(await fetchApi('/chapters', { method: 'POST', body: JSON.stringify({ ...chapter, pages }) })),
-    deleteChapter: async (id: string, token?: string): Promise<boolean> => !!(await fetchApi(`/chapters/${id}`, { method: 'DELETE' })),
+    deleteChapter: async (id: string, comicId: string, token?: string): Promise<boolean> => !!(await fetchApi(`/chapters/${id}`, { method: 'DELETE' })),
     getChapterPages: async (chapterId: string): Promise<Page[]> => {
         const res = await fetchApi(`/chapters/${chapterId}/pages`);
         return Array.isArray(res) ? res : [];
@@ -135,6 +135,11 @@ const ApiService = {
         const res = await fetchApi('/analytics');
         return res || { totalViews: 0, todayViews: 0, monthViews: 0 };
     },
+    
+    getSystemStats: async (): Promise<SystemStats> => {
+        const res = await fetchApi('/system-stats');
+        return res || { imageStorageUsed: 0, databaseRows: 0, nodeVersion: 'N/A', reactVersion: 'N/A', viteVersion: 'N/A', platform: 'N/A', arch: 'N/A' };
+    },
 
     getProxiedHtml: async (url: string): Promise<string> => {
         const res = await fetchApi('/leech', { method: 'POST', body: JSON.stringify({ url }) });
@@ -154,9 +159,6 @@ const ApiService = {
     getLeechConfigs: async (): Promise<LeechConfig[]> => (await fetchApi('/leech-configs')) || [],
     saveLeechConfig: async (config: LeechConfig): Promise<boolean> => !!(await fetchApi('/leech-configs', { method: 'POST', body: JSON.stringify(config) })),
     deleteLeechConfig: async (id: string): Promise<boolean> => !!(await fetchApi(`/leech-configs/${id}`, { method: 'DELETE' })),
-
-    leechScan: async (url: string): Promise<any> => ({ success: false }),
-    leechChapterContent: async (url: string): Promise<any> => ({ success: false })
 };
 
-export const DataProvider = USE_MOCK_DATA ? ApiService : ApiService; // Fallback to ApiService even for Mock var because I removed the MockProvider big object to save space. In real app, keep MockProvider.
+export const DataProvider = USE_MOCK_DATA ? ApiService : ApiService;

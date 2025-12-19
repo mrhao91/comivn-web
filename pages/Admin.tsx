@@ -1,15 +1,16 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { 
     LayoutDashboard, BookOpen, List, Users, Settings, Image as ImageIcon, 
     Plus, Edit, Trash2, Save, X, ChevronRight, ChevronDown, 
     Search, Upload, Palette, Globe, Menu, MessageSquare, Flag,
     FileText, Link as LinkIcon, Download, Code, GripVertical, AlertTriangle, RefreshCw, Copy, LogOut, ArrowLeft, Check, CheckCircle,
-    TrendingUp, BarChart3, Calendar, Activity, HardDrive, Clock, MousePointerClick, Star, ShieldCheck, KeyRound, Folder, LayoutGrid
+    TrendingUp, BarChart3, Calendar, Activity, HardDrive, Clock, MousePointerClick, Star, ShieldCheck, KeyRound, Folder, LayoutGrid, Shrink, Sparkles
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { DataProvider } from '../services/dataProvider';
 import { AuthService } from '../services/auth';
-import { Comic, Genre, AdConfig, User, StaticPage, ThemeConfig, Report, Chapter, MediaFile, Analytics, Comment, LeechConfig, LeechJob } from '../types';
+import { Comic, Genre, AdConfig, User, StaticPage, ThemeConfig, Report, Chapter, MediaFile, Analytics, Comment, LeechConfig, LeechJob, SystemStats } from '../types';
 import SimpleEditor from '../components/SimpleEditor';
 import { DEFAULT_THEME, SEED_STATIC_PAGES } from '../services/seedData';
 import { summarizeComic } from '../services/geminiService';
@@ -38,7 +39,55 @@ const AVAILABLE_FONTS = [
     { name: 'Comfortaa', label: 'Comfortaa (Bo tròn)' }
 ];
 
-// NEW: Slugify function for Vietnamese characters
+// NEW: Image compression utility
+export const compressImage = (file: File, quality = 0.85, maxDimensions = 1200): Promise<File> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+
+        if (width > maxDimensions || height > maxDimensions) {
+          if (width > height) {
+            height = Math.round((height * maxDimensions) / width);
+            width = maxDimensions;
+          } else {
+            width = Math.round((width * maxDimensions) / height);
+            height = maxDimensions;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Could not get canvas context'));
+        
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) return reject(new Error('Canvas toBlob failed'));
+            // Force JPEG for better compression, use original name
+            const newFile = new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), {
+              type: 'image/jpeg',
+              lastModified: Date.now(),
+            });
+            resolve(newFile);
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+      img.onerror = reject;
+    };
+    reader.onerror = reject;
+  });
+};
+
 const slugify = (str: string) => {
     if (!str) return '';
     str = str.toLowerCase();
@@ -160,6 +209,14 @@ const ALL_PERMISSIONS = [
     {id: 'leech_configs', label: 'Cấu hình Leech'},
 ];
 
+const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
 const Admin: React.FC = () => {
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<'dashboard' | 'comics' | 'genres' | 'settings' | 'users' | 'ads' | 'reports' | 'static' | 'media' | 'comments' | 'leech_configs'>('dashboard');
@@ -177,10 +234,12 @@ const Admin: React.FC = () => {
     const [themeConfig, setThemeConfig] = useState<ThemeConfig>(DEFAULT_THEME);
     const [analytics, setAnalytics] = useState<Analytics>({ totalViews: 0, todayViews: 0, monthViews: 0 });
     const [leechConfigs, setLeechConfigs] = useState<LeechConfig[]>([]);
-    const [leechJobs, setLeechJobs] = useState<LeechJob[]>([]); // New State for leech jobs
+    const [leechJobs, setLeechJobs] = useState<LeechJob[]>([]); 
     const [mediaViewMode, setMediaViewMode] = useState<'grid' | 'tiles' | 'list'>('grid');
     const [mediaPath, setMediaPath] = useState<string[]>([]);
-    const [comicSearchQuery, setComicSearchQuery] = useState(''); // NEW: Comic search state
+    const [comicSearchQuery, setComicSearchQuery] = useState(''); 
+    const [systemStats, setSystemStats] = useState<SystemStats | null>(null); 
+    const [compressingFile, setCompressingFile] = useState<string | null>(null); // NEW: Compression state
 
     // Dashboard Filter State
     const [topComicsTimeframe, setTopComicsTimeframe] = useState<'day' | 'week' | 'month'>('day');
@@ -199,19 +258,21 @@ const Admin: React.FC = () => {
     // Helper functions for Modal
     const showAlert = (msg: string, title = 'Thông báo') => setModal({ isOpen: true, type: 'alert', title, message: msg });
     const showConfirm = (msg: string, onConfirm: () => void, title = 'Xác nhận', type: ModalType = 'confirm', confirmText = 'Đồng ý') => setModal({ isOpen: true, type, title, message: msg, onConfirm, confirmText });
-    const showPrompt = (msg: string, onConfirm: (val: string) => void, defaultValue = '', title = 'Nhập thông tin') => setModal({ isOpen: true, type: 'prompt', title, message: msg, defaultValue, onConfirm: (val) => { if(val) onConfirm(val); }, confirmText: 'Lưu' });
     const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }));
 
     // Form States
     const [isEditing, setIsEditing] = useState(false);
     const [isUploadingFile, setIsUploadingFile] = useState(false);
     const [isScanning, setIsScanning] = useState(false);
+    // FIX: Add state for AI summarization
+    const [summarizing, setSummarizing] = useState(false);
 
     // Refs
     const fileInputRef = useRef<HTMLInputElement>(null);
     const chapterInputRef = useRef<HTMLInputElement>(null);
     const mediaInputRef = useRef<HTMLInputElement>(null);
-    const genreSelectRef = useRef<HTMLSelectElement>(null); // New ref for genre select
+    const genreSelectRef = useRef<HTMLSelectElement>(null); 
+    const isInitialMount = useRef(true); 
 
     // Drag-and-drop state for home genres
     const [draggedGenre, setDraggedGenre] = useState<{ name: string, slug: string } | null>(null);
@@ -225,22 +286,44 @@ const Admin: React.FC = () => {
     const [userForm, setUserForm] = useState<User>(initialUserForm);
     const [staticForm, setStaticForm] = useState<StaticPage>({ slug: '', title: '', content: '' });
     const [leechConfigForm, setLeechConfigForm] = useState<LeechConfig>(initialLeechConfigForm);
-    // NEW: Separate form state for editor's own password change
     const [editorPasswordForm, setEditorPasswordForm] = useState({ password: '' });
 
-    // Leech States (now mostly for scanning UI)
+    // Leech States
     const [leechUrl, setLeechUrl] = useState('');
     const [selectedLeechConfigId, setSelectedLeechConfigId] = useState<string>('');
     const [leechSourceChapters, setLeechSourceChapters] = useState<{url: string, title: string, number: number}[]>([]);
     const [leechSelectedChapters, setLeechSelectedChapters] = useState<string[]>([]);
     const [leechProgress, setLeechProgress] = useState('');
     const [leechError, setLeechError] = useState<string | null>(null);
-    const [showManualLeech, setShowManualLeech] = useState(false);
-    const [manualHtml, setManualHtml] = useState('');
     const [leechStorageMode, setLeechStorageMode] = useState<'url' | 'upload'>('url');
 
     useEffect(() => {
         if (!AuthService.isAuthenticated()) { navigate('/login'); return; }
+
+        if (isInitialMount.current) {
+            const allTabs = [
+                { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+                { id: 'comics', label: 'Truyện tranh', icon: BookOpen },
+                { id: 'comments', label: 'Bình luận', icon: MessageSquare },
+                { id: 'genres', label: 'Thể loại', icon: List },
+                { id: 'media', label: 'Thư viện ảnh', icon: ImageIcon },
+                { id: 'ads', label: 'Quảng cáo', icon: LayoutDashboard },
+                { id: 'users', label: 'Thành viên', icon: Users },
+                { id: 'reports', label: 'Báo lỗi', icon: Flag },
+                { id: 'static', label: 'Trang tĩnh', icon: FileText },
+                { id: 'settings', label: 'Cấu hình', icon: Settings },
+                { id: 'leech_configs', label: 'Cấu hình Leech', icon: Download }
+            ];
+
+            const permittedTabs = allTabs.filter(tab => AuthService.hasPermission(tab.id));
+            const currentTabHasPermission = permittedTabs.some(tab => tab.id === activeTab);
+
+            if (permittedTabs.length > 0 && !currentTabHasPermission) {
+                setActiveTab(permittedTabs[0].id as any);
+            }
+            isInitialMount.current = false;
+        }
+
         loadData();
     }, [activeTab, mediaPath]);
 
@@ -254,7 +337,8 @@ const Admin: React.FC = () => {
                         DataProvider.getGenres().then(setGenres),
                         DataProvider.getUsers().then(setUsers),
                         DataProvider.getReports().then(setReports),
-                        DataProvider.getAnalytics().then(setAnalytics)
+                        DataProvider.getAnalytics().then(setAnalytics),
+                        DataProvider.getSystemStats().then(setSystemStats)
                     ]);
                     break;
                 case 'comics':
@@ -308,15 +392,35 @@ const Admin: React.FC = () => {
 
 
     // --- Actions ---
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetField: 'comic' | 'ad' | 'theme-favicon') => {
+    // FIX: Add handler for Gemini summarization
+    const handleSummarizeDescription = async () => {
+        if (!comicForm.title) {
+            showAlert("Vui lòng nhập tên truyện trước khi tạo mô tả.", "Thiếu thông tin");
+            return;
+        }
+        setSummarizing(true);
+        try {
+            const newDescription = await summarizeComic(comicForm.title, comicForm.description);
+            setComicForm(prev => ({ ...prev, description: newDescription }));
+        } catch (e: any) {
+            console.error(e);
+            showAlert("Không thể tạo mô tả. Lỗi: " + e.message, "Lỗi AI");
+        } finally {
+            setSummarizing(false);
+        }
+    };
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetField: 'comic' | 'ad' | 'theme-favicon' | 'theme-logo') => {
         if (e.target.files?.[0]) {
             setIsUploadingFile(true);
             try {
-                const url = await DataProvider.uploadImage(e.target.files[0], slugify(comicForm.slug || comicForm.title));
+                const compressedFile = await compressImage(e.target.files[0]);
+                const url = await DataProvider.uploadImage(compressedFile, 'theme');
                 if (url) {
                     if (targetField === 'comic') setComicForm(prev => ({ ...prev, coverImage: url }));
                     else if (targetField === 'ad') setAdForm(prev => ({ ...prev, imageUrl: url }));
                     else if (targetField === 'theme-favicon') setThemeConfig(prev => ({ ...prev, favicon: url }));
+                    else if (targetField === 'theme-logo') setThemeConfig(prev => ({ ...prev, logoUrl: url }));
                 }
             } catch (error) { showAlert("Lỗi upload."); } 
             finally { setIsUploadingFile(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
@@ -329,7 +433,8 @@ const Admin: React.FC = () => {
             try {
                 const newUrls = [];
                 for (let i = 0; i < e.target.files.length; i++) {
-                    const url = await DataProvider.uploadImage(e.target.files[i], slugify(comicForm.slug || comicForm.title), chapterForm.number, i + 1);
+                    const compressedFile = await compressImage(e.target.files[i]);
+                    const url = await DataProvider.uploadImage(compressedFile, slugify(comicForm.slug || comicForm.title), chapterForm.number, i + 1);
                     if (url) newUrls.push(url);
                 }
                 setChapterForm(prev => ({ ...prev, pagesContent: prev.pagesContent + (prev.pagesContent ? '\n' : '') + newUrls.join('\n') }));
@@ -344,7 +449,8 @@ const Admin: React.FC = () => {
             try {
                 const currentFolder = mediaPath.join('/');
                 for (let i = 0; i < e.target.files.length; i++) {
-                    await DataProvider.uploadImage(e.target.files[i], currentFolder);
+                    const compressedFile = await compressImage(e.target.files[i]);
+                    await DataProvider.uploadImage(compressedFile, currentFolder);
                 }
                 loadData();
             } catch (error) { showAlert("Lỗi upload."); } 
@@ -352,21 +458,38 @@ const Admin: React.FC = () => {
         }
     };
 
+    // NEW: Client-side URL fetcher and uploader with compression
+    const uploadCompressedImageFromUrl = async (url: string, folder: string, chapterNum?: number, index?: number): Promise<string> => {
+        try {
+            const blob = await DataProvider.getImageBlob(url);
+            if (!blob) throw new Error("Could not fetch image as blob via proxy.");
+
+            const fileName = url.split('/').pop()?.split('?')[0] || `leech-${Date.now()}.jpg`;
+            const originalFile = new File([blob], fileName, { type: blob.type });
+            
+            const compressedFile = await compressImage(originalFile);
+            return await DataProvider.uploadImage(compressedFile, folder, chapterNum, index);
+        } catch (e: any) {
+            console.error('Client-side compression failed, falling back to server-side download for:', url, e.message);
+            // Fallback to server-side download if client-side proxy/compression fails
+            const newUrl = await DataProvider.uploadImageFromUrl(url, folder, chapterNum, index);
+            return newUrl || url; // Return original url if server also fails
+        }
+    };
+
     const handleScanLeech = async () => {
         setLeechError(null); setLeechSourceChapters([]); setIsScanning(true); setLeechProgress('');
         const selectedConfig = leechConfigs.find(c => c.id === selectedLeechConfigId);
 
-        if (!selectedConfig && !manualHtml) {
-            setLeechError("Vui lòng chọn một Server Leech hoặc nhập HTML thủ công.");
+        if (!selectedConfig) {
+            setLeechError("Vui lòng chọn một Server Leech.");
             setIsScanning(false);
             return;
         }
 
         try {
             let data;
-            if (showManualLeech && manualHtml) {
-                data = genericParseComicHtml(manualHtml, selectedConfig || {baseUrl: 'https://example.com', ...leechConfigForm});
-            } else if (leechUrl && selectedConfig) {
+            if (leechUrl && selectedConfig) {
                 const result = await DataProvider.getProxiedHtml(leechUrl);
                 data = genericParseComicHtml(result, {...selectedConfig, baseUrl: leechUrl});
             } else {
@@ -377,15 +500,11 @@ const Admin: React.FC = () => {
 
             let finalCoverImage = data.coverImage;
             if (selectedConfig?.uploadCoverImage && data.coverImage) {
-                setLeechProgress('⏳ Tải ảnh bìa...');
+                setLeechProgress('⏳ Tải & nén ảnh bìa...');
                 try {
                     const comicSlug = comicForm.slug || slugify(data.title);
-                    const uploadedUrl = await DataProvider.uploadImageFromUrl(data.coverImage, comicSlug);
-                    if (uploadedUrl) {
-                        finalCoverImage = uploadedUrl;
-                    } else {
-                        throw new Error('Upload via proxy failed');
-                    }
+                    const uploadedUrl = await uploadCompressedImageFromUrl(data.coverImage, comicSlug);
+                    if (uploadedUrl) finalCoverImage = uploadedUrl;
                 } catch (e) {
                     console.error("Failed to upload cover image:", e);
                     setLeechError('Không thể tải lên ảnh bìa.');
@@ -405,10 +524,6 @@ const Admin: React.FC = () => {
 
         } catch (err: any) {
              setLeechError(`${err.message}`);
-             if (err.message.includes("Cloudflare")) {
-                 setShowManualLeech(true);
-                 setLeechError("Trang bị Cloudflare. Vui lòng mở link trên trình duyệt, copy HTML và dán vào ô bên dưới.");
-             }
         } finally {
             setIsScanning(false);
         }
@@ -419,7 +534,6 @@ const Admin: React.FC = () => {
         if (!selectedConfig) { showAlert("Vui lòng chọn Server Leech."); return; }
         if (leechSelectedChapters.length === 0) { showAlert("Chưa chọn chapter"); return; }
         
-        // Ensure comic is saved and has an ID
         let currentComicId = comicForm.id;
         if (!currentComicId) {
             currentComicId = `comic-${Date.now()}`;
@@ -429,15 +543,7 @@ const Admin: React.FC = () => {
 
         const chaptersToLeech = leechSourceChapters.filter(c => leechSelectedChapters.includes(c.url));
         const jobId = `leech-job-${Date.now()}`;
-        const newJob: LeechJob = {
-            id: jobId,
-            comicId: currentComicId,
-            comicTitle: comicForm.title,
-            status: 'running',
-            progressText: 'Bắt đầu...',
-            totalChapters: chaptersToLeech.length,
-            completedChapters: 0,
-        };
+        const newJob: LeechJob = { id: jobId, comicId: currentComicId, comicTitle: comicForm.title, status: 'running', progressText: 'Bắt đầu...', totalChapters: chaptersToLeech.length, completedChapters: 0 };
         setLeechJobs(prev => [newJob, ...prev]);
         setLeechSelectedChapters([]); 
 
@@ -454,12 +560,12 @@ const Admin: React.FC = () => {
                         if (leechStorageMode === 'upload') {
                             const uploadedUrls = [];
                             for (let i = 0; i < images.length; i++) {
-                                setLeechJobs(prev => prev.map(j => j.id === jobId ? { ...j, progressText: `Đang tải ảnh ${i+1}/${images.length} của ${chap.title}` } : j));
+                                setLeechJobs(prev => prev.map(j => j.id === jobId ? { ...j, progressText: `Đang tải & nén ảnh ${i+1}/${images.length} của ${chap.title}` } : j));
                                 try {
                                     const comicSlug = comicForm.slug || slugify(comicForm.title);
-                                    const upData = await DataProvider.uploadImageFromUrl(images[i], comicSlug, chap.number, i + 1);
+                                    const upData = await uploadCompressedImageFromUrl(images[i], comicSlug, chap.number, i + 1);
                                     if (upData) uploadedUrls.push(upData);
-                                    else uploadedUrls.push(images[i]);
+                                    else uploadedUrls.push(images[i]); // Fallback
                                 } catch (e) { 
                                     console.error("Upload error:", e);
                                     uploadedUrls.push(images[i]);
@@ -477,12 +583,12 @@ const Admin: React.FC = () => {
                 } catch (e) {
                     console.error(`Failed to leech ${chap.title}:`, e);
                 }
-                await new Promise(r => setTimeout(r, 500));
+                await new Promise(r => setTimeout(r, 200)); // Small delay
             }
 
             setLeechJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'completed', progressText: `Hoàn tất! Thành công: ${successCount}/${chaptersToLeech.length}` } : j));
-        } catch (error) {
-            setLeechJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'failed', progressText: `Lỗi: ${error}` } : j));
+        } catch (error: any) {
+            setLeechJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'failed', progressText: `Lỗi: ${error.message}` } : j));
         } finally {
              if (currentComicId) { 
                 const updated = await DataProvider.getComicById(currentComicId); 
@@ -491,27 +597,16 @@ const Admin: React.FC = () => {
         }
     };
 
-
     const handleStartEdit = async (id: string) => { setLoading(true); setComicForm({ id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false, slug: '', metaTitle: '', metaDescription: '', metaKeywords: '' }); setLeechSourceChapters([]); const f = await DataProvider.getComicById(id); if (f) { setComicForm(f); setIsEditing(true); } setLoading(false); };
     
     const handleSaveComic = async () => {
         const id = comicForm.id || `comic-${Date.now()}`;
         const slug = comicForm.slug || slugify(comicForm.title);
         await DataProvider.saveComic({ ...comicForm, id, slug });
-        showConfirm(
-            "Đã lưu truyện thành công!",
-            () => {
-                setIsEditing(false); // Close form
-                loadData();         // Reload data
-            },
-            'Thành công',
-            'alert', // 'alert' type to show only an OK button with confirm logic
-            'OK'
-        );
+        showConfirm("Đã lưu truyện thành công!", () => { setIsEditing(false); loadData(); }, 'Thành công', 'alert', 'OK');
     };
 
     const handleDeleteComic = async (id: string) => { showConfirm('Bạn có chắc muốn xóa truyện này? Hành động không thể hoàn tác.', async () => { await DataProvider.deleteComic(id); loadData(); }, 'Xóa Truyện', 'danger'); };
-    const handleAutoSummarize = async () => { if (!comicForm.title) return; const s = await summarizeComic(comicForm.title, comicForm.description); setComicForm({...comicForm, description: s}); };
     const handleEditChapter = async (c: Chapter) => { setLoading(true); const p = await DataProvider.getChapterPages(c.id); setChapterForm({ id: c.id, title: c.title, number: c.number, pagesContent: p.map(x => x.imageUrl).join('\n') }); setIsEditingChapter(true); setLoading(false); };
     const handleAddChapter = () => { const n = comicForm.chapters.length > 0 ? Math.max(...comicForm.chapters.map(c => c.number)) + 1 : 1; setChapterForm({ id: '', title: `Chapter ${n}`, number: n, pagesContent: '' }); setIsEditingChapter(true); };
     const handleQuickAddChapter = async (id: string) => { await handleStartEdit(id); handleAddChapter(); };
@@ -532,56 +627,66 @@ const Admin: React.FC = () => {
 
     const handleDeleteUser = async (id: string | number) => { showConfirm('Xóa người dùng này?', async () => { await DataProvider.deleteUser(id); loadData(); }, 'Xóa User', 'danger'); };
     const handleSaveTheme = async () => { await DataProvider.saveTheme(themeConfig); showAlert("Đã lưu cấu hình thành công!"); window.location.reload(); };
-    const handleSaveStatic = async () => { await DataProvider.saveStaticPage(staticForm); setStaticForm({ slug: '', title: '', content: '' }); loadData(); showAlert("Đã lưu trang tĩnh!"); };
+    
+    const handleSaveStatic = async () => {
+        const formWithSlug = { ...staticForm, slug: staticForm.slug || slugify(staticForm.title) };
+        if (!formWithSlug.title || !formWithSlug.slug) { showAlert("Tiêu đề và Slug không được để trống.", "Lỗi"); return; }
+        const success = await DataProvider.saveStaticPage(formWithSlug);
+        if (success) showConfirm("Đã lưu trang tĩnh!", () => { setStaticForm({ slug: '', title: '', content: '' }); loadData(); }, 'Thành công', 'alert');
+        else showAlert("Lưu thất bại. Vui lòng kiểm tra kết nối server.", "Lỗi");
+    };
+    
     const handleSeedStaticPages = async () => { showConfirm('Tạo lại các trang tĩnh mẫu?', async () => { for (const p of SEED_STATIC_PAGES) await DataProvider.saveStaticPage(p); loadData(); showAlert("Đã tạo xong!") }); };
     const handleDeleteReport = async (id: string) => { showConfirm('Xóa báo cáo này?', async () => { await DataProvider.deleteReport(id); loadData(); }, 'Xóa Báo cáo', 'danger'); };
-    
     const handleDeleteStaticPage = async (slug: string, title: string) => {
-        showConfirm(
-            `Bạn có chắc muốn xóa trang "${title}"?`,
-            async () => {
-                await DataProvider.deleteStaticPage(slug);
-                if (staticForm.slug === slug) {
-                   setStaticForm({ slug: '', title: '', content: '' });
-                }
-                loadData();
-                showAlert("Đã xóa trang tĩnh.");
-            },
-            'Xóa Trang Tĩnh',
-            'danger'
-        );
+        showConfirm(`Bạn có chắc muốn xóa trang "${title}"?`, async () => {
+            const success = await DataProvider.deleteStaticPage(slug);
+            if (success) { showConfirm("Đã xóa trang tĩnh.", () => { if (staticForm.slug === slug) setStaticForm({ slug: '', title: '', content: '' }); loadData(); }, 'Thành công', 'alert'); }
+            else { showAlert("Xóa trang thất bại.", "Lỗi"); }
+        }, 'Xóa Trang Tĩnh', 'danger');
     };
     
-    const handleMediaFolderClick = (folderName: string) => {
-        setMediaPath(prev => [...prev, folderName]);
-    };
-    const handleMediaBreadcrumbClick = (index: number) => {
-        setMediaPath(prev => prev.slice(0, index + 1));
-    };
-    const handleMediaRootClick = () => {
-        setMediaPath([]);
-    };
+    const handleMediaFolderClick = (folderName: string) => setMediaPath(prev => [...prev, folderName]);
+    const handleMediaBreadcrumbClick = (index: number) => setMediaPath(prev => prev.slice(0, index + 1));
+    const handleMediaRootClick = () => setMediaPath([]);
     
     const handleDeleteMedia = async (name: string, isDir: boolean) => {
-        if (isDir) {
-            showAlert("Không thể xóa thư mục từ giao diện này. Vui lòng sử dụng FTP hoặc trình quản lý file trên host của bạn.", "Thao tác bị chặn");
-            return;
-        }
+        if (isDir) { showAlert("Không thể xóa thư mục từ giao diện này.", "Thao tác bị chặn"); return; }
         const currentPath = mediaPath.join('/');
         const fullPath = currentPath ? `${currentPath}/${name}` : name;
         showConfirm(`Xóa file ${name}? Hành động này không thể hoàn tác.`, async () => { 
             const success = await DataProvider.deleteMedia(fullPath); 
-            if (success) {
-                showAlert("Đã xóa file thành công.");
-                loadData(); 
-            } else {
-                showAlert("Xóa file thất bại. Có thể file không tồn tại hoặc do lỗi server.", "Lỗi");
-            }
+            if (success) { showAlert("Đã xóa file."); loadData(); } 
+            else { showAlert("Xóa file thất bại.", "Lỗi"); }
         }, 'Xóa Ảnh', 'danger'); 
     };
 
+    const handleCompressImage = async (filePath: string) => {
+        setCompressingFile(filePath);
+        try {
+            const blob = await DataProvider.getImageBlob(filePath);
+            if (!blob) throw new Error('Không thể tải dữ liệu ảnh.');
+            
+            const originalFile = new File([blob], filePath.split('/').pop()!, { type: blob.type });
+
+            const compressedFile = await compressImage(originalFile);
+
+            const pathParts = new URL(filePath, window.location.origin).pathname.replace('/uploads/', '').split('/');
+            pathParts.pop(); // remove filename
+            const folder = pathParts.join('/');
+
+            await DataProvider.uploadImage(compressedFile, folder, undefined, undefined, true);
+            
+            showAlert('Nén ảnh thành công!');
+            loadData();
+        } catch (error: any) {
+            showAlert('Lỗi khi nén ảnh: ' + error.message, 'Lỗi');
+        } finally {
+            setCompressingFile(null);
+        }
+    };
+
     const copyToClipboard = (text: string) => { navigator.clipboard.writeText(text.startsWith('/') ? `${window.location.origin}${text}` : text).then(() => showAlert("Đã copy vào clipboard!")); };
-    const formatFileSize = (bytes: number) => { if (bytes === 0) return '0 B'; const i = Math.floor(Math.log(bytes) / Math.log(1024)); return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + ' ' + ['B', 'KB', 'MB', 'GB'][i]; };
     const handleApproveComment = async (id: string) => { await DataProvider.approveComment(id); loadData(); };
     const handleDeleteComment = async (id: string) => { showConfirm('Xóa bình luận này?', async () => { await DataProvider.deleteComment(id); loadData(); }, 'Xóa Bình luận', 'danger'); };
     
@@ -592,128 +697,63 @@ const Admin: React.FC = () => {
         loadData();
         showAlert("Đã lưu cấu hình leech!");
     };
-    const handleDeleteLeechConfig = async (id: string) => {
-        showConfirm('Xóa cấu hình này?', async () => {
-            await DataProvider.deleteLeechConfig(id);
-            loadData();
-        }, 'Xóa Cấu hình', 'danger');
-    };
+    const handleDeleteLeechConfig = async (id: string) => { showConfirm('Xóa cấu hình này?', async () => { await DataProvider.deleteLeechConfig(id); loadData(); }, 'Xóa Cấu hình', 'danger'); };
 
     const handleAddHomeGenre = () => {
         if (genreSelectRef.current) {
             const selectedSlug = genreSelectRef.current.value;
             if (selectedSlug) {
                 const selectedGenre = genres.find(g => g.slug === selectedSlug);
-                if (selectedGenre) {
-                    const currentGenres = themeConfig.homeLayout?.homeGenres || [];
-                    if (!currentGenres.some(g => g.slug === selectedSlug)) {
-                        setThemeConfig(prev => ({
-                            ...prev,
-                            homeLayout: {
-                                ...(prev.homeLayout || DEFAULT_THEME.homeLayout),
-                                homeGenres: [...currentGenres, { name: selectedGenre.name, slug: selectedGenre.slug }]
-                            }
-                        }));
-                    }
+                if (selectedGenre && !(themeConfig.homeLayout?.homeGenres || []).some(g => g.slug === selectedSlug)) {
+                    setThemeConfig(prev => ({ ...prev, homeLayout: { ...(prev.homeLayout || DEFAULT_THEME.homeLayout), homeGenres: [...(prev.homeLayout?.homeGenres || []), { name: selectedGenre.name, slug: selectedGenre.slug }] } }));
                 }
             }
         }
     };
     
-    const handleRemoveHomeGenre = (slug: string) => {
-        setThemeConfig(prev => ({
-            ...prev,
-            homeLayout: {
-                ...(prev.homeLayout || DEFAULT_THEME.homeLayout),
-                homeGenres: (prev.homeLayout?.homeGenres || []).filter(g => g.slug !== slug)
-            }
-        }));
-    };
-
-    const handleDragStart = (genre: { name: string; slug: string }) => {
-        setDraggedGenre(genre);
-    };
+    const handleRemoveHomeGenre = (slug: string) => setThemeConfig(prev => ({ ...prev, homeLayout: { ...(prev.homeLayout || DEFAULT_THEME.homeLayout), homeGenres: (prev.homeLayout?.homeGenres || []).filter(g => g.slug !== slug) } }));
+    const handleDragStart = (genre: { name: string; slug: string }) => setDraggedGenre(genre);
 
     const handleDrop = (targetIndex: number) => {
         if (!draggedGenre) return;
-
         const currentGenres = [...(themeConfig.homeLayout?.homeGenres || [])];
         const draggedIndex = currentGenres.findIndex(g => g.slug === draggedGenre.slug);
 
         if (draggedIndex !== -1) {
             const [removed] = currentGenres.splice(draggedIndex, 1);
             currentGenres.splice(targetIndex, 0, removed);
-
-            setThemeConfig(prev => ({
-                ...prev,
-                homeLayout: {
-                    ...(prev.homeLayout || DEFAULT_THEME.homeLayout),
-                    homeGenres: currentGenres
-                }
-            }));
+            setThemeConfig(prev => ({ ...prev, homeLayout: { ...(prev.homeLayout || DEFAULT_THEME.homeLayout), homeGenres: currentGenres } }));
         }
         setDraggedGenre(null);
     };
 
     const handleEditorPasswordChange = async () => {
         const currentUser = AuthService.getUser();
-        if (!currentUser || !editorPasswordForm.password) {
-            showAlert("Vui lòng nhập mật khẩu mới.");
-            return;
-        }
-        const userToUpdate: User = { ...currentUser, password: editorPasswordForm.password };
-        await DataProvider.saveUser(userToUpdate);
+        if (!currentUser || !editorPasswordForm.password) { showAlert("Vui lòng nhập mật khẩu mới."); return; }
+        await DataProvider.saveUser({ ...currentUser, password: editorPasswordForm.password });
         setEditorPasswordForm({ password: '' });
         showAlert("Đổi mật khẩu thành công!");
     };
     
-    // --- Keyboard Shortcut Handler (Ctrl+S) ---
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 's') {
                 e.preventDefault();
-                
                 switch (activeTab) {
-                    case 'comics':
-                        if (isEditingChapter) {
-                            if (chapterForm.pagesContent.trim()) handleSaveChapter();
-                            else showAlert("Không thể lưu chapter rỗng.", "Lỗi");
-                        } else if (isEditing) {
-                            if (comicForm.title.trim()) handleSaveComic();
-                            else showAlert("Tên truyện không được để trống.", "Lỗi");
-                        }
-                        break;
-                    case 'genres':
-                        if (genreForm.name.trim()) handleSaveGenre();
-                        break;
-                    case 'ads':
-                        if (adForm.imageUrl.trim()) handleSaveAd();
-                        break;
-                    case 'users':
-                        if (userForm.username.trim() && (userForm.id || userForm.password)) handleSaveUser();
-                        break;
-                    case 'static':
-                        if (staticForm.title.trim()) handleSaveStatic();
-                        break;
-                    case 'settings':
-                        handleSaveTheme();
-                        break;
-                    case 'leech_configs':
-                        if (leechConfigForm.name.trim()) handleSaveLeechConfig();
-                        break;
+                    case 'comics': if (isEditingChapter) handleSaveChapter(); else if (isEditing) handleSaveComic(); break;
+                    case 'genres': if (genreForm.name.trim()) handleSaveGenre(); break;
+                    case 'ads': if (adForm.imageUrl.trim()) handleSaveAd(); break;
+                    case 'users': if (userForm.username.trim() && (userForm.id || userForm.password)) handleSaveUser(); break;
+                    case 'static': if (staticForm.title.trim()) handleSaveStatic(); break;
+                    case 'settings': handleSaveTheme(); break;
+                    case 'leech_configs': if (leechConfigForm.name.trim()) handleSaveLeechConfig(); break;
                 }
             }
         };
 
         document.addEventListener('keydown', handleKeyDown);
-        return () => {
-            document.removeEventListener('keydown', handleKeyDown);
-        };
-    }, [
-        activeTab, isEditing, isEditingChapter, 
-        comicForm, chapterForm, genreForm, adForm, 
-        userForm, staticForm, themeConfig, leechConfigForm
-    ]);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [ activeTab, isEditing, isEditingChapter, comicForm, chapterForm, genreForm, adForm, userForm, staticForm, themeConfig, leechConfigForm ]);
 
 
     // --- Renderers ---
@@ -725,10 +765,7 @@ const Admin: React.FC = () => {
     );
 
     const renderComicsTab = () => {
-        const filteredComics = comics.filter(c => 
-            c.title.toLowerCase().includes(comicSearchQuery.toLowerCase())
-        );
-
+        const filteredComics = comics.filter(c => c.title.toLowerCase().includes(comicSearchQuery.toLowerCase()));
         return (
             <div className="space-y-6">
                 <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-white">Quản lý Truyện</h2>{!isEditing && <button onClick={() => { setComicForm({ id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false, slug: '', metaTitle: '', metaDescription: '', metaKeywords: '' }); setIsEditing(true); }} className="bg-primary text-white px-4 py-2 rounded flex items-center gap-2"><Plus size={18} /> Thêm Truyện</button>}</div>
@@ -744,13 +781,26 @@ const Admin: React.FC = () => {
                             </div>
                         </div>
                         <div className="mb-4"><label className="text-xs text-slate-400 mb-1 block">Thể loại</label><div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 bg-dark rounded border border-white/10">{genres.map(g => (<label key={g.id} className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={comicForm.genres.includes(g.name)} onChange={e => { const newGenres = e.target.checked ? [...comicForm.genres, g.name] : comicForm.genres.filter(name => name !== g.name); setComicForm({...comicForm, genres: newGenres}); }} className="accent-primary"/>{g.name}</label>))}</div></div>
-                        <div className="mb-4"><div className="flex justify-between items-center mb-1"><label className="text-xs text-slate-400">Mô tả</label><button type="button" onClick={handleAutoSummarize} className="text-xs text-primary hover:underline">✨ AI Tóm tắt</button></div><SimpleEditor value={comicForm.description} onChange={val => setComicForm({...comicForm, description: val})} height="150px"/></div>
+                        <div className="mb-4">
+                            {/* FIX: Add AI summarization button for comic description */}
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="text-xs text-slate-400">Mô tả</label>
+                                <button
+                                    type="button"
+                                    onClick={handleSummarizeDescription}
+                                    disabled={summarizing || !comicForm.title}
+                                    className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title={!comicForm.title ? "Nhập tên truyện để dùng AI" : "Tạo mô tả ngắn gọn bằng AI"}
+                                >
+                                    {summarizing ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                                    {summarizing ? 'Đang tạo...' : 'Tạo với AI'}
+                                </button>
+                            </div>
+                            <SimpleEditor value={comicForm.description} onChange={val => setComicForm({...comicForm, description: val})} height="150px"/>
+                        </div>
                         <div className="bg-dark/50 p-4 rounded-lg border border-white/5 space-y-3 mt-4 mb-6"><h5 className="text-sm font-bold text-primary flex items-center gap-2"><Globe size={16}/> SEO</h5><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div className="md:col-span-2"><label className="text-xs text-slate-400 mb-1 block">URL Slug</label><input type="text" value={comicForm.slug || ''} onChange={e => setComicForm({...comicForm, slug: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div><label className="text-xs text-slate-400 mb-1 block">Meta Title</label><input type="text" value={comicForm.metaTitle || ''} onChange={e => setComicForm({...comicForm, metaTitle: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div><label className="text-xs text-slate-400 mb-1 block">Meta Keywords</label><input type="text" value={comicForm.metaKeywords || ''} onChange={e => setComicForm({...comicForm, metaKeywords: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div><div className="md:col-span-2"><label className="text-xs text-slate-400 mb-1 block">Meta Description</label><textarea value={comicForm.metaDescription || ''} onChange={e => setComicForm({...comicForm, metaDescription: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white h-20"/></div></div></div>
                         <div className="bg-gradient-to-br from-indigo-900/30 to-purple-900/30 border border-indigo-500/20 p-4 rounded-lg mb-6">
-                            <div className="flex justify-between items-start mb-2">
-                                <h3 className="font-bold text-white flex items-center gap-2"><Download size={18}/> Leech Truyện</h3>
-                                <button onClick={() => setShowManualLeech(!showManualLeech)} className="text-xs bg-indigo-500/20 text-indigo-200 px-2 py-1 rounded flex items-center gap-1 border border-indigo-500/30"><Code size={12}/> {showManualLeech ? "Ẩn HTML" : "Nhập HTML"}</button>
-                            </div>
+                            <h3 className="font-bold text-white flex items-center gap-2 mb-2"><Download size={18}/> Leech Truyện</h3>
                             {leechError && <div className="mb-3 p-3 bg-red-500/20 text-red-300 text-sm">{leechError}</div>}
                              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
                                  <select value={selectedLeechConfigId} onChange={e => setSelectedLeechConfigId(e.target.value)} className="md:col-span-1 bg-dark border border-white/10 rounded px-3 py-2 text-sm text-white"><option value="">-- Chọn Server Leech --</option>{leechConfigs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
@@ -758,7 +808,6 @@ const Admin: React.FC = () => {
                              </div>
                              <button onClick={handleScanLeech} disabled={isScanning} className="w-full bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold min-w-[80px]">{isScanning ? (leechProgress || '...') : 'Quét'}</button>
                             
-                            {showManualLeech && (<div className="mt-3"><textarea value={manualHtml} onChange={e => setManualHtml(e.target.value)} className="w-full h-32 bg-dark border border-white/10 rounded p-2 text-xs font-mono text-slate-300" placeholder="HTML..."/><div className="mt-2 flex justify-end gap-2"><button onClick={handleScanLeech} disabled={!manualHtml} className="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold">Phân tích HTML</button></div></div>)}
                             {leechSourceChapters.length > 0 && (<div className="space-y-3 pt-3 mt-3 border-t border-white/10"><div className="max-h-40 overflow-y-auto bg-dark border border-white/10 rounded p-2"><div className="flex justify-between items-center mb-2 px-1"><label className="text-xs text-slate-400 flex items-center gap-2"><input type="checkbox" onChange={e => setLeechSelectedChapters(e.target.checked ? leechSourceChapters.map(c => c.url) : [])} checked={leechSelectedChapters.length === leechSourceChapters.length && leechSourceChapters.length > 0}/> Tất cả</label><span className="text-xs text-indigo-400 font-bold">{leechSelectedChapters.length} chọn</span></div><div className="grid grid-cols-3 gap-1">{leechSourceChapters.map((c, idx) => (<label key={idx} className="flex items-center gap-2 text-xs p-1 hover:bg-white/5 rounded truncate"><input type="checkbox" checked={leechSelectedChapters.includes(c.url)} onChange={e => { if (e.target.checked) setLeechSelectedChapters(prev => [...prev, c.url]); else setLeechSelectedChapters(prev => prev.filter(u => u !== c.url)); }}/> {c.title}</label>))}</div></div>
                         <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-2">
                             <label className="text-xs text-slate-400 block mb-1">Chế độ lưu ảnh:</label>
@@ -769,7 +818,7 @@ const Admin: React.FC = () => {
                                 </label>
                                 <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
                                     <input type="radio" name="leech_mode" checked={leechStorageMode === 'upload'} onChange={() => setLeechStorageMode('upload')} className="accent-primary"/> 
-                                    Upload hình ảnh lên host
+                                    Upload & nén ảnh lên host
                                 </label>
                             </div>
                         </div>
@@ -782,13 +831,7 @@ const Admin: React.FC = () => {
                         <div className="p-3 bg-white/5 border-b border-white/10">
                             <div className="relative">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                                <input
-                                    type="text"
-                                    placeholder="Tìm truyện..."
-                                    value={comicSearchQuery}
-                                    onChange={e => setComicSearchQuery(e.target.value)}
-                                    className="w-full bg-dark border border-white/10 rounded-lg py-1.5 px-4 pl-10 text-sm focus:outline-none focus:border-primary placeholder-slate-500"
-                                />
+                                <input type="text" placeholder="Tìm truyện..." value={comicSearchQuery} onChange={e => setComicSearchQuery(e.target.value)} className="w-full bg-dark border border-white/10 rounded-lg py-1.5 px-4 pl-10 text-sm focus:outline-none focus:border-primary placeholder-slate-500" />
                             </div>
                         </div>
                         <table className="w-full text-left text-sm text-slate-300">
@@ -1039,10 +1082,7 @@ const Admin: React.FC = () => {
         <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-white">Báo cáo lỗi</h2>
-                <button 
-                    onClick={loadData} 
-                    className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all"
-                >
+                <button onClick={loadData} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all">
                     <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> Làm mới
                 </button>
             </div>
@@ -1073,15 +1113,11 @@ const Admin: React.FC = () => {
             <div className="space-y-8">
                 <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-bold text-white">Quản lý Bình luận</h2>
-                    <button 
-                        onClick={loadData} 
-                        className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all"
-                    >
+                    <button onClick={loadData} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all">
                         <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> Làm mới
                     </button>
                 </div>
                 
-                {/* Pending */}
                 <div className="bg-card border border-white/10 rounded-xl p-6">
                     <h3 className="font-bold text-yellow-500 mb-4 flex items-center gap-2">
                         <Clock size={20}/> Chờ duyệt ({pendingComments.length})
@@ -1106,7 +1142,6 @@ const Admin: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Approved */}
                 <div className="bg-card border border-white/10 rounded-xl p-6">
                      <h3 className="font-bold text-green-500 mb-4 flex items-center gap-2">
                         <CheckCircle size={20}/> Đã duyệt ({approvedComments.length})
@@ -1138,11 +1173,7 @@ const Admin: React.FC = () => {
             <div className="w-full space-y-6">
                 <h2 className="text-2xl font-bold text-white">Cấu hình Giao diện & SEO</h2>
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                    
-                    {/* Column 1: General Settings, Layout, SEO */}
                     <div className="bg-card border border-white/10 p-6 rounded-xl space-y-5">
-                        
-                        {/* Section: Appearance & Layout */}
                         <h3 className="font-bold text-white border-b border-white/10 pb-2 flex items-center gap-2"><Palette size={18}/> Giao diện & Bố cục</h3>
                         <div className="space-y-5">
                              <div className="grid grid-cols-2 gap-4">
@@ -1169,28 +1200,14 @@ const Admin: React.FC = () => {
 
                             <div className="border-t border-white/5 pt-4 space-y-3">
                                 <div><label className="text-xs text-slate-400 block mb-1">Tên Website</label><input type="text" value={themeConfig.siteName} onChange={e => setThemeConfig({...themeConfig, siteName: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/></div>
+                                <div><label className="text-xs text-slate-400 block mb-1">Logo URL</label><div className="flex gap-2"><input type="text" value={themeConfig.logoUrl || ''} onChange={e => setThemeConfig({...themeConfig, logoUrl: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white"/><label className="cursor-pointer bg-blue-600 px-3 py-2 rounded text-white"><input type="file" className="hidden" onChange={(e) => handleFileUpload(e, 'theme-logo')} /><Upload size={16}/></label></div></div>
                                 <div><label className="text-xs text-slate-400 block mb-1">Favicon URL</label><div className="flex gap-2"><input type="text" value={themeConfig.favicon || ''} onChange={e => setThemeConfig({...themeConfig, favicon: e.target.value})} className="flex-1 bg-dark border border-white/10 rounded p-2 text-white"/><label className="cursor-pointer bg-blue-600 px-3 py-2 rounded text-white"><input type="file" className="hidden" onChange={(e) => handleFileUpload(e, 'theme-favicon')} /><Upload size={16}/></label></div></div>
-                                {AuthService.isAdmin() && (
-                                    <div>
-                                        <label className="text-xs text-slate-400 block mb-1">URL Đăng nhập Admin</label>
-                                        <input 
-                                            type="text" 
-                                            value={themeConfig.loginUrl || ''} 
-                                            onChange={e => setThemeConfig({...themeConfig, loginUrl: e.target.value})} 
-                                            className="w-full bg-dark border border-white/10 rounded p-2 text-white"
-                                            placeholder="/login"
-                                        />
-                                    </div>
-                                )}
+                                {AuthService.isAdmin() && ( <div> <label className="text-xs text-slate-400 block mb-1">URL Đăng nhập Admin</label> <input type="text" value={themeConfig.loginUrl || ''} onChange={e => setThemeConfig({...themeConfig, loginUrl: e.target.value})} className="w-full bg-dark border border-white/10 rounded p-2 text-white" placeholder="/login" /> </div> )}
                             </div>
 
                              <div className="border-t border-white/5 pt-4">
                                 <label className="text-xs text-slate-400 block mb-1 font-bold">Bố cục Website</label>
-                                <select 
-                                    value={themeConfig.siteLayout || 'classic'} 
-                                    onChange={e => setThemeConfig({...themeConfig, siteLayout: e.target.value as any})} 
-                                    className="w-full bg-dark border border-white/10 rounded p-2 text-white"
-                                >
+                                <select value={themeConfig.siteLayout || 'classic'} onChange={e => setThemeConfig({...themeConfig, siteLayout: e.target.value as any})} className="w-full bg-dark border border-white/10 rounded p-2 text-white">
                                     <option value="classic">Cổ điển (Mặc định)</option>
                                     <option value="modern">Hiện đại (Cinematic)</option>
                                     <option value="minimalist">Tối giản (Danh sách)</option>
@@ -1207,18 +1224,9 @@ const Admin: React.FC = () => {
                                 </div>
                                 
                                 <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/5">
-                                    <div>
-                                        <label className="text-xs text-slate-400 block mb-1">SL Truyện Hot</label>
-                                        <input type="number" value={themeConfig.homeLayout?.hotComicsCount || 6} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...(themeConfig.homeLayout || DEFAULT_THEME.homeLayout), hotComicsCount: parseInt(e.target.value) || 6}})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
-                                    </div>
-                                    <div>
-                                        <label className="text-xs text-slate-400 block mb-1">SL Truyện Mới</label>
-                                        <input type="number" value={themeConfig.homeLayout?.newComicsCount || 12} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...(themeConfig.homeLayout || DEFAULT_THEME.homeLayout), newComicsCount: parseInt(e.target.value) || 12}})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
-                                    </div>
-                                    <div>
-                                        <label className="text-xs text-slate-400 block mb-1">SL/Thể loại</label>
-                                        <input type="number" value={themeConfig.homeLayout?.genreComicsCount || 6} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...(themeConfig.homeLayout || DEFAULT_THEME.homeLayout), genreComicsCount: parseInt(e.target.value) || 6}})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/>
-                                    </div>
+                                    <div> <label className="text-xs text-slate-400 block mb-1">SL Truyện Hot</label> <input type="number" value={themeConfig.homeLayout?.hotComicsCount || 6} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...(themeConfig.homeLayout || DEFAULT_THEME.homeLayout), hotComicsCount: parseInt(e.target.value) || 6}})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/> </div>
+                                    <div> <label className="text-xs text-slate-400 block mb-1">SL Truyện Mới</label> <input type="number" value={themeConfig.homeLayout?.newComicsCount || 12} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...(themeConfig.homeLayout || DEFAULT_THEME.homeLayout), newComicsCount: parseInt(e.target.value) || 12}})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/> </div>
+                                    <div> <label className="text-xs text-slate-400 block mb-1">SL/Thể loại</label> <input type="number" value={themeConfig.homeLayout?.genreComicsCount || 6} onChange={e => setThemeConfig({...themeConfig, homeLayout: {...(themeConfig.homeLayout || DEFAULT_THEME.homeLayout), genreComicsCount: parseInt(e.target.value) || 6}})} className="w-full bg-dark border border-white/10 rounded p-2 text-white"/> </div>
                                 </div>
 
                                 <div className="border-t border-white/5 pt-4 mt-4">
@@ -1231,32 +1239,19 @@ const Admin: React.FC = () => {
                                     </div>
                                     <div className="bg-dark/50 border border-white/10 rounded-lg p-2 space-y-1 min-h-[100px]">
                                         {(themeConfig.homeLayout?.homeGenres || []).map((genre, index) => (
-                                            <div 
-                                                key={genre.slug} 
-                                                draggable 
-                                                onDragStart={() => handleDragStart(genre)}
-                                                onDragOver={e => e.preventDefault()}
-                                                onDrop={() => handleDrop(index)}
-                                                onDragEnd={() => setDraggedGenre(null)}
-                                                className={`flex items-center gap-2 p-2 bg-dark rounded cursor-grab transition-opacity ${draggedGenre?.slug === genre.slug ? 'opacity-50' : ''}`}
-                                            >
+                                            <div key={genre.slug} draggable onDragStart={() => handleDragStart(genre)} onDragOver={e => e.preventDefault()} onDrop={() => handleDrop(index)} onDragEnd={() => setDraggedGenre(null)} className={`flex items-center gap-2 p-2 bg-dark rounded cursor-grab transition-opacity ${draggedGenre?.slug === genre.slug ? 'opacity-50' : ''}`}>
                                                 <GripVertical size={16} className="text-slate-500 flex-shrink-0" />
                                                 <span className="flex-1 text-sm text-slate-300">{genre.name}</span>
-                                                <button onClick={() => handleRemoveHomeGenre(genre.slug)} className="text-red-500 hover:text-red-400">
-                                                    <Trash2 size={14} />
-                                                </button>
+                                                <button onClick={() => handleRemoveHomeGenre(genre.slug)} className="text-red-500 hover:text-red-400"> <Trash2 size={14} /> </button>
                                             </div>
                                         ))}
-                                        {(!themeConfig.homeLayout?.homeGenres || themeConfig.homeLayout.homeGenres.length === 0) && (
-                                            <p className="text-xs text-slate-500 text-center p-4">Chưa có thể loại nào được thêm.</p>
-                                        )}
+                                        {(!themeConfig.homeLayout?.homeGenres || themeConfig.homeLayout.homeGenres.length === 0) && ( <p className="text-xs text-slate-500 text-center p-4">Chưa có thể loại nào được thêm.</p> )}
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* Column 2: Menus & Footer Content */}
                     <div className="space-y-6 flex flex-col">
                         <div className="bg-card border border-white/10 p-6 rounded-xl">
                             <h3 className="font-bold text-white border-b border-white/10 pb-2 mb-4 flex items-center gap-2"><Menu size={18}/> Cấu hình Menu</h3>
@@ -1289,12 +1284,8 @@ const Admin: React.FC = () => {
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-white">Trang tĩnh</h2>
                 <div className="flex gap-2">
-                    <button onClick={() => setStaticForm({ slug: '', title: '', content: '' })} className="text-sm bg-primary text-white px-3 py-1.5 rounded flex items-center gap-2">
-                        <Plus size={16}/> Thêm Mới
-                    </button>
-                    <button onClick={handleSeedStaticPages} className="text-sm bg-white/10 hover:bg-white/20 text-white px-3 py-1 rounded flex items-center gap-2">
-                        <RefreshCw size={14}/> Reset Mẫu
-                    </button>
+                    <button onClick={() => setStaticForm({ slug: '', title: '', content: '' })} className="text-sm bg-primary text-white px-3 py-1.5 rounded flex items-center gap-2"> <Plus size={16}/> Thêm Mới </button>
+                    <button onClick={handleSeedStaticPages} className="text-sm bg-white/10 hover:bg-white/20 text-white px-3 py-1 rounded flex items-center gap-2"> <RefreshCw size={14}/> Reset Mẫu </button>
                 </div>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1314,14 +1305,7 @@ const Admin: React.FC = () => {
                                     <td className="p-3 text-white font-medium hover:text-primary cursor-pointer" onClick={() => setStaticForm(p)}>{p.title}</td>
                                     <td className="p-3 text-slate-500 cursor-pointer" onClick={() => setStaticForm(p)}>{p.slug}</td>
                                     <td className="p-3 text-right">
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDeleteStaticPage(p.slug, p.title);
-                                            }}
-                                            className="text-red-400 hover:text-red-300"
-                                            title={`Xóa trang ${p.title}`}
-                                        >
+                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteStaticPage(p.slug, p.title); }} className="text-red-400 hover:text-red-300" title={`Xóa trang ${p.title}`}>
                                             <Trash2 size={16} />
                                         </button>
                                     </td>
@@ -1356,10 +1340,7 @@ const Admin: React.FC = () => {
                 {mediaPath.map((segment, index) => (
                     <React.Fragment key={index}>
                         <span className="text-slate-600">/</span>
-                        <button 
-                            onClick={() => handleMediaBreadcrumbClick(index)} 
-                            className={`hover:text-primary ${index === mediaPath.length - 1 ? 'text-white font-semibold' : ''}`}
-                        >
+                        <button onClick={() => handleMediaBreadcrumbClick(index)} className={`hover:text-primary ${index === mediaPath.length - 1 ? 'text-white font-semibold' : ''}`}>
                             {segment}
                         </button>
                     </React.Fragment>
@@ -1384,6 +1365,7 @@ const Admin: React.FC = () => {
                                 <div className="flex justify-between items-center">
                                     <span className="text-[10px] text-slate-500">{file.isDir ? 'Thư mục' : formatFileSize(file.size)}</span>
                                     <div className="flex gap-1">
+                                        {!file.isDir && <button onClick={() => handleCompressImage(file.url)} disabled={compressingFile === file.url} className="p-1 hover:bg-white/10 rounded text-green-400" title="Nén ảnh">{compressingFile === file.url ? <RefreshCw size={12} className="animate-spin"/> : <Shrink size={12}/>}</button>}
                                         {!file.isDir && <button onClick={() => copyToClipboard(file.url)} className="p-1 hover:bg-white/10 rounded text-blue-400" title="Copy Link"><Copy size={12}/></button>}
                                         <button onClick={() => handleDeleteMedia(file.name, file.isDir)} className="p-1 hover:bg-white/10 rounded text-red-400" title="Xóa"><Trash2 size={12}/></button>
                                     </div>
@@ -1423,6 +1405,7 @@ const Admin: React.FC = () => {
                                     <td className="p-3 text-slate-400 text-xs">{new Date(file.created).toLocaleDateString()}</td>
                                     <td className="p-3 text-right">
                                         <div className="flex gap-2 justify-end">
+                                            {!file.isDir && <button onClick={() => handleCompressImage(file.url)} disabled={compressingFile === file.url} className="p-2 hover:bg-white/10 rounded text-green-400" title="Nén ảnh">{compressingFile === file.url ? <RefreshCw size={16} className="animate-spin"/> : <Shrink size={16}/>}</button>}
                                             {!file.isDir && <button onClick={() => copyToClipboard(file.url)} className="p-2 hover:bg-white/10 rounded text-blue-400" title="Copy Link"><Copy size={16}/></button>}
                                             <button onClick={() => handleDeleteMedia(file.name, file.isDir)} className="p-2 hover:bg-white/10 rounded text-red-400" title="Xóa"><Trash2 size={16}/></button>
                                         </div>
@@ -1501,135 +1484,34 @@ const Admin: React.FC = () => {
     );
 
     const renderDashboard = () => {
-        // Calculations
         const topComics = [...comics].sort((a, b) => b.views - a.views).slice(0, 5);
         const latestComics = [...comics].sort((a, b) => new Date(b.chapters[0]?.updatedAt || 0).getTime() - new Date(a.chapters[0]?.updatedAt || 0).getTime()).slice(0, 5);
-
+        const imageStorageUsedBytes = systemStats?.imageStorageUsed || 0;
+    
         return (
             <div className="space-y-8 animate-in fade-in duration-500">
-                {/* 1. Existing Top Stats Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div className="bg-card p-6 rounded-xl border border-white/10 shadow-lg relative overflow-hidden group hover:border-blue-500/30 transition-colors">
-                        <div className="absolute right-0 top-0 w-24 h-24 bg-blue-500/5 rounded-bl-full group-hover:bg-blue-500/10 transition-colors"></div>
-                        <div className="flex justify-between items-start mb-4 relative z-10">
-                            <div className="p-3 bg-blue-500/20 text-blue-500 rounded-lg"><BookOpen size={24}/></div>
-                            <span className="text-xs text-slate-400 font-bold bg-white/5 px-2 py-1 rounded">+12 tuần này</span>
-                        </div>
-                        <h3 className="text-3xl font-bold text-white mb-1 relative z-10">{comics.length}</h3>
-                        <p className="text-slate-400 text-sm relative z-10">Đầu truyện</p>
-                    </div>
-
-                    <div className="bg-card p-6 rounded-xl border border-white/10 shadow-lg relative overflow-hidden group hover:border-green-500/30 transition-colors">
-                        <div className="absolute right-0 top-0 w-24 h-24 bg-green-500/5 rounded-bl-full group-hover:bg-green-500/10 transition-colors"></div>
-                        <div className="flex justify-between items-start mb-4 relative z-10">
-                            <div className="p-3 bg-green-500/20 text-green-400 rounded-lg"><Users size={24}/></div>
-                        </div>
-                        <h3 className="text-3xl font-bold text-white mb-1 relative z-10">{users.length}</h3>
-                        <p className="text-slate-400 text-sm relative z-10">Thành viên</p>
-                    </div>
-
-                    <div className="bg-card p-6 rounded-xl border border-white/10 shadow-lg relative overflow-hidden group hover:border-orange-500/30 transition-colors">
-                        <div className="absolute right-0 top-0 w-24 h-24 bg-orange-500/5 rounded-bl-full group-hover:bg-orange-500/10 transition-colors"></div>
-                        <div className="flex justify-between items-start mb-4 relative z-10">
-                            <div className="p-3 bg-orange-500/20 text-orange-500 rounded-lg"><Flag size={24}/></div>
-                        </div>
-                        <h3 className="text-3xl font-bold text-white mb-1 relative z-10">{reports.length}</h3>
-                        <p className="text-slate-400 text-sm relative z-10">Báo cáo lỗi</p>
-                    </div>
-
-                    <div className="bg-card p-6 rounded-xl border border-white/10 shadow-lg relative overflow-hidden group hover:border-purple-500/30 transition-colors">
-                        <div className="absolute right-0 top-0 w-24 h-24 bg-purple-500/5 rounded-bl-full group-hover:bg-purple-500/10 transition-colors"></div>
-                        <div className="flex justify-between items-start mb-4 relative z-10">
-                            <div className="p-3 bg-purple-500/20 text-purple-500 rounded-lg"><List size={24}/></div>
-                        </div>
-                        <h3 className="text-3xl font-bold text-white mb-1 relative z-10">{genres.length}</h3>
-                        <p className="text-slate-400 text-sm relative z-10">Thể loại</p>
-                    </div>
+                    <div className="bg-card p-6 rounded-xl border border-white/10 shadow-lg relative overflow-hidden group hover:border-blue-500/30 transition-colors"> <div className="absolute right-0 top-0 w-24 h-24 bg-blue-500/5 rounded-bl-full group-hover:bg-blue-500/10 transition-colors"></div> <div className="flex justify-between items-start mb-4 relative z-10"> <div className="p-3 bg-blue-500/20 text-blue-500 rounded-lg"><BookOpen size={24}/></div> </div> <h3 className="text-3xl font-bold text-white mb-1 relative z-10">{comics.length}</h3> <p className="text-slate-400 text-sm relative z-10">Đầu truyện</p> </div>
+                    <div className="bg-card p-6 rounded-xl border border-white/10 shadow-lg relative overflow-hidden group hover:border-green-500/30 transition-colors"> <div className="absolute right-0 top-0 w-24 h-24 bg-green-500/5 rounded-bl-full group-hover:bg-green-500/10 transition-colors"></div> <div className="flex justify-between items-start mb-4 relative z-10"> <div className="p-3 bg-green-500/20 text-green-400 rounded-lg"><Users size={24}/></div> </div> <h3 className="text-3xl font-bold text-white mb-1 relative z-10">{users.length}</h3> <p className="text-slate-400 text-sm relative z-10">Thành viên</p> </div>
+                    <div className="bg-card p-6 rounded-xl border border-white/10 shadow-lg relative overflow-hidden group hover:border-orange-500/30 transition-colors"> <div className="absolute right-0 top-0 w-24 h-24 bg-orange-500/5 rounded-bl-full group-hover:bg-orange-500/10 transition-colors"></div> <div className="flex justify-between items-start mb-4 relative z-10"> <div className="p-3 bg-orange-500/20 text-orange-500 rounded-lg"><Flag size={24}/></div> </div> <h3 className="text-3xl font-bold text-white mb-1 relative z-10">{reports.length}</h3> <p className="text-slate-400 text-sm relative z-10">Báo cáo lỗi</p> </div>
+                    <div className="bg-card p-6 rounded-xl border border-white/10 shadow-lg relative overflow-hidden group hover:border-purple-500/30 transition-colors"> <div className="absolute right-0 top-0 w-24 h-24 bg-purple-500/5 rounded-bl-full group-hover:bg-purple-500/10 transition-colors"></div> <div className="flex justify-between items-start mb-4 relative z-10"> <div className="p-3 bg-purple-500/20 text-purple-500 rounded-lg"><List size={24}/></div> </div> <h3 className="text-3xl font-bold text-white mb-1 relative z-10">{genres.length}</h3> <p className="text-slate-400 text-sm relative z-10">Thể loại</p> </div>
                 </div>
 
-                {/* 2. Main Stats Section: Traffic & Leaderboard */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                     {/* Left: General Analytics */}
                      <div className="lg:col-span-1 bg-card border border-white/10 rounded-xl shadow-lg p-6 flex flex-col gap-6">
-                         <div className="flex items-center gap-2 mb-2">
-                             <div className="p-2 bg-primary/20 rounded-lg text-primary"><Activity size={20} /></div>
-                             <h3 className="text-lg font-bold text-white">Tổng quan lượt xem</h3>
-                         </div>
-                         
-                         {/* Total Views Big Card */}
-                         <div className="bg-gradient-to-br from-indigo-900/40 to-purple-900/40 border border-indigo-500/20 rounded-xl p-6 text-center">
-                             <span className="text-slate-400 text-sm uppercase tracking-wider">Tổng lượt xem trang web</span>
-                             <div className="text-4xl lg:text-5xl font-extrabold text-white mt-2 mb-1 drop-shadow-lg">
-                                 {analytics.totalViews.toLocaleString()}
-                             </div>
-                             <div className="text-green-400 text-xs font-medium flex items-center justify-center gap-1">
-                                 <TrendingUp size={12}/> +5.2% so với tháng trước
-                             </div>
-                         </div>
-
-                         {/* Mini Stats */}
+                         <div className="flex items-center gap-2 mb-2"> <div className="p-2 bg-primary/20 rounded-lg text-primary"><Activity size={20} /></div> <h3 className="text-lg font-bold text-white">Tổng quan lượt xem</h3> </div>
+                         <div className="bg-gradient-to-br from-indigo-900/40 to-purple-900/40 border border-indigo-500/20 rounded-xl p-6 text-center"> <span className="text-slate-400 text-sm uppercase tracking-wider">Tổng lượt xem trang web</span> <div className="text-4xl lg:text-5xl font-extrabold text-white mt-2 mb-1 drop-shadow-lg"> {analytics.totalViews.toLocaleString()} </div> <div className="text-green-400 text-xs font-medium flex items-center justify-center gap-1"> <TrendingUp size={12}/> +5.2% so với tháng trước </div> </div>
                          <div className="space-y-4">
-                             <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg">
-                                 <div className="flex items-center gap-3">
-                                     <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-500"><Calendar size={16}/></div>
-                                     <div className="flex flex-col">
-                                         <span className="text-sm font-medium text-slate-300">Hôm nay</span>
-                                         <span className="text-xs text-slate-500">Thống kê</span>
-                                     </div>
-                                 </div>
-                                 <span className="font-bold text-white">{analytics.todayViews.toLocaleString()}</span>
-                             </div>
-
-                             <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg">
-                                 <div className="flex items-center gap-3">
-                                     <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center text-green-500"><BarChart3 size={16}/></div>
-                                     <div className="flex flex-col">
-                                         <span className="text-sm font-medium text-slate-300">Tháng này</span>
-                                         <span className="text-xs text-slate-500">Thống kê</span>
-                                     </div>
-                                 </div>
-                                 <span className="font-bold text-white">{analytics.monthViews.toLocaleString()}</span>
-                             </div>
-                             
-                             <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg">
-                                 <div className="flex items-center gap-3">
-                                     <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-500"><MousePointerClick size={16}/></div>
-                                     <div className="flex flex-col">
-                                         <span className="text-sm font-medium text-slate-300">Trung bình / Truyện</span>
-                                         <span className="text-xs text-slate-500">Hiệu suất</span>
-                                     </div>
-                                 </div>
-                                 <span className="font-bold text-white">{comics.length > 0 ? (analytics.totalViews / comics.length).toFixed(0) : 0}</span>
-                             </div>
+                             <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg"> <div className="flex items-center gap-3"> <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-500"><Calendar size={16}/></div> <div className="flex flex-col"> <span className="text-sm font-medium text-slate-300">Hôm nay</span> <span className="text-xs text-slate-500">Thống kê</span> </div> </div> <span className="font-bold text-white">{analytics.todayViews.toLocaleString()}</span> </div>
+                             <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg"> <div className="flex items-center gap-3"> <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center text-green-500"><BarChart3 size={16}/></div> <div className="flex flex-col"> <span className="text-sm font-medium text-slate-300">Tháng này</span> <span className="text-xs text-slate-500">Thống kê</span> </div> </div> <span className="font-bold text-white">{analytics.monthViews.toLocaleString()}</span> </div>
+                             <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg"> <div className="flex items-center gap-3"> <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-500"><MousePointerClick size={16}/></div> <div className="flex flex-col"> <span className="text-sm font-medium text-slate-300">Trung bình / Truyện</span> <span className="text-xs text-slate-500">Hiệu suất</span> </div> </div> <span className="font-bold text-white">{comics.length > 0 ? (analytics.totalViews / comics.length).toFixed(0) : 0}</span> </div>
                          </div>
                     </div>
-
-                    {/* Right: Leaderboard */}
                     <div className="lg:col-span-2 bg-card border border-white/10 rounded-xl shadow-lg flex flex-col">
                         <div className="p-6 border-b border-white/10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                            <div className="flex items-center gap-2">
-                                <div className="p-2 bg-yellow-500/20 rounded-lg text-yellow-500"><TrendingUp size={20} /></div>
-                                <div>
-                                    <h3 className="text-lg font-bold text-white">Top Truyện Xem Nhiều</h3>
-                                    <p className="text-xs text-slate-500">Thống kê theo lượt xem thực tế</p>
-                                </div>
-                            </div>
-                            
-                            {/* Time Filters */}
-                            <div className="flex bg-dark p-1 rounded-lg border border-white/10">
-                                {['day', 'week', 'month'].map(tf => (
-                                    <button 
-                                        key={tf}
-                                        onClick={() => setTopComicsTimeframe(tf as any)}
-                                        className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${topComicsTimeframe === tf ? 'bg-primary text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                                    >
-                                        {tf === 'day' ? 'Hôm nay' : (tf === 'week' ? 'Tuần này' : 'Tháng này')}
-                                    </button>
-                                ))}
-                            </div>
+                            <div className="flex items-center gap-2"> <div className="p-2 bg-yellow-500/20 rounded-lg text-yellow-500"><TrendingUp size={20} /></div> <div> <h3 className="text-lg font-bold text-white">Top Truyện Xem Nhiều</h3> <p className="text-xs text-slate-500">Thống kê theo lượt xem thực tế</p> </div> </div>
+                            <div className="flex bg-dark p-1 rounded-lg border border-white/10"> {['day', 'week', 'month'].map(tf => ( <button key={tf} onClick={() => setTopComicsTimeframe(tf as any)} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${topComicsTimeframe === tf ? 'bg-primary text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}> {tf === 'day' ? 'Hôm nay' : (tf === 'week' ? 'Tuần này' : 'Tháng này')} </button> ))} </div>
                         </div>
-
-                        {/* Leaderboard List */}
                         <div className="flex-1 p-6 overflow-y-auto">
                             <div className="space-y-6">
                                 {topComics.map((c, idx) => {
@@ -1638,74 +1520,48 @@ const Admin: React.FC = () => {
                                     return (
                                         <div key={c.id} className="relative group">
                                             <div className="flex items-center gap-4 relative z-10">
-                                                <div className={`w-8 h-8 flex items-center justify-center rounded-lg font-bold text-sm ${idx === 0 ? 'bg-yellow-500 text-black' : (idx === 1 ? 'bg-slate-300 text-black' : (idx === 2 ? 'bg-orange-700 text-white' : 'bg-white/10 text-slate-400'))}`}>
-                                                    {idx + 1}
-                                                </div>
+                                                <div className={`w-8 h-8 flex items-center justify-center rounded-lg font-bold text-sm ${idx === 0 ? 'bg-yellow-500 text-black' : (idx === 1 ? 'bg-slate-300 text-black' : (idx === 2 ? 'bg-orange-700 text-white' : 'bg-white/10 text-slate-400'))}`}> {idx + 1} </div>
                                                 <img src={c.coverImage} className="w-10 h-14 object-cover rounded bg-dark border border-white/10" alt={c.title} />
                                                 <div className="flex-1 min-w-0">
-                                                    <div className="flex justify-between mb-1">
-                                                        <span 
-                                                            className="text-sm font-bold text-white truncate pr-2 group-hover:text-primary transition-colors cursor-pointer"
-                                                            onClick={() => handleStartEdit(c.id)}
-                                                        >
-                                                            {c.title}
-                                                        </span>
-                                                        <span className="text-xs font-bold text-slate-300">{c.views.toLocaleString()}</span>
-                                                    </div>
-                                                    <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden">
-                                                        <div 
-                                                            className={`h-full rounded-full ${idx === 0 ? 'bg-gradient-to-r from-yellow-500 to-orange-500' : 'bg-primary'}`} 
-                                                            style={{ width: `${percentage}%` }}
-                                                        ></div>
-                                                    </div>
+                                                    <div className="flex justify-between mb-1"> <span className="text-sm font-bold text-white truncate pr-2 group-hover:text-primary transition-colors cursor-pointer" onClick={() => handleStartEdit(c.id)}> {c.title} </span> <span className="text-xs font-bold text-slate-300">{c.views.toLocaleString()}</span> </div>
+                                                    <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden"> <div className={`h-full rounded-full ${idx === 0 ? 'bg-gradient-to-r from-yellow-500 to-orange-500' : 'bg-primary'}`} style={{ width: `${percentage}%` }} ></div> </div>
                                                 </div>
                                             </div>
                                         </div>
                                     );
                                 })}
                             </div>
-                            <div className="mt-6 pt-4 border-t border-white/5 text-center">
-                                <p className="text-[10px] text-slate-500 italic">* Dữ liệu hiển thị dựa trên tổng lượt xem tích lũy.</p>
-                            </div>
+                            <div className="mt-6 pt-4 border-t border-white/5 text-center"> <p className="text-[10px] text-slate-500 italic">* Dữ liệu hiển thị dựa trên tổng lượt xem tích lũy.</p> </div>
                         </div>
                     </div>
                 </div>
 
-                {/* 3. System Status & Recent Updates */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div className="bg-card border border-white/10 rounded-xl p-6">
-                        <h3 className="font-bold text-white mb-4 flex items-center gap-2">
-                            <HardDrive size={18} className="text-slate-400" /> Trạng thái hệ thống
-                        </h3>
-                        <div className="space-y-4">
-                            <div>
-                                <div className="flex justify-between text-xs mb-1">
-                                    <span className="text-slate-400">Dung lượng ảnh (Ước tính)</span>
-                                    <span className="text-white font-bold">{(comics.length * 15 + 120).toFixed(0)} MB / 5 GB</span>
+                        <h3 className="font-bold text-white mb-4 flex items-center gap-2"> <HardDrive size={18} className="text-slate-400" /> Trạng thái hệ thống </h3>
+                         {systemStats ? (
+                            <div className="space-y-3">
+                                <div className="flex justify-between items-center text-sm">
+                                    <span className="text-slate-400">Dung lượng ảnh</span>
+                                    <span className="text-white font-semibold">{formatFileSize(imageStorageUsedBytes)}</span>
                                 </div>
-                                <div className="w-full bg-white/5 rounded-full h-2 overflow-hidden">
-                                    <div className="h-full bg-blue-500 w-[5%]"></div>
-                                </div>
-                            </div>
-                            <div>
-                                <div className="flex justify-between text-xs mb-1">
+                                <div className="flex justify-between items-center text-sm">
                                     <span className="text-slate-400">Database Records</span>
-                                    <span className="text-white font-bold">{comics.length * 20 + 500} rows</span>
+                                    <span className="text-white font-semibold">{systemStats.databaseRows.toLocaleString()} rows</span>
                                 </div>
-                                <div className="w-full bg-white/5 rounded-full h-2 overflow-hidden">
-                                    <div className="h-full bg-green-500 w-[12%]"></div>
+                                <div className="pt-3 border-t border-white/10 mt-3 flex flex-wrap gap-2">
+                                    <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded border border-green-500/20">Server: Online</span>
+                                    <span className="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded border border-blue-500/20">Database: Connected</span>
+                                    <span className="px-2 py-1 bg-gray-500/20 text-gray-400 text-xs rounded border border-gray-500/20">Node: {systemStats.nodeVersion}</span>
+                                    <span className="px-2 py-1 bg-gray-500/20 text-gray-400 text-xs rounded border border-gray-500/20">React: {systemStats.reactVersion}</span>
+                                    <span className="px-2 py-1 bg-gray-500/20 text-gray-400 text-xs rounded border border-gray-500/20">Vite: {systemStats.viteVersion}</span>
+                                    <span className="px-2 py-1 bg-gray-500/20 text-gray-400 text-xs rounded border border-gray-500/20">OS: {systemStats.platform}</span>
                                 </div>
                             </div>
-                            <div className="pt-2 flex gap-2">
-                                <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded border border-green-500/20">Server: Online</span>
-                                <span className="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded border border-blue-500/20">Database: Connected</span>
-                            </div>
-                        </div>
+                        ) : ( <p className="text-sm text-slate-500">Đang tải thông số...</p> )}
                     </div>
                     <div className="bg-card border border-white/10 rounded-xl p-6">
-                         <h3 className="font-bold text-white mb-4 flex items-center gap-2">
-                            <Clock size={18} className="text-slate-400" /> Vừa cập nhật
-                        </h3>
+                         <h3 className="font-bold text-white mb-4 flex items-center gap-2"> <Clock size={18} className="text-slate-400" /> Vừa cập nhật </h3>
                         <div className="space-y-3">
                             {latestComics.slice(0, 3).map(c => (
                                 <div key={c.id} className="flex gap-3 items-center p-2 hover:bg-white/5 rounded-lg transition-colors cursor-pointer" onClick={() => handleStartEdit(c.id)}>
@@ -1714,9 +1570,7 @@ const Admin: React.FC = () => {
                                         <div className="text-sm font-medium text-white truncate">{c.title}</div>
                                         <div className="text-xs text-slate-500">{c.chapters[0] ? `Đã đăng ${c.chapters[0].title}` : 'Chưa có chương'}</div>
                                     </div>
-                                    <div className="text-[10px] text-slate-500 whitespace-nowrap">
-                                        {c.chapters[0]?.updatedAt ? new Date(c.chapters[0].updatedAt).toLocaleDateString() : 'N/A'}
-                                    </div>
+                                    <div className="text-[10px] text-slate-500 whitespace-nowrap"> {c.chapters[0]?.updatedAt ? new Date(c.chapters[0].updatedAt).toLocaleDateString() : 'N/A'} </div>
                                 </div>
                             ))}
                             <button onClick={() => setActiveTab('comics')} className="w-full text-center text-xs text-primary hover:underline pt-2">Xem tất cả truyện</button>
@@ -1727,48 +1581,35 @@ const Admin: React.FC = () => {
         );
     };
 
+    const allTabs = [
+        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'comics', label: 'Truyện tranh', icon: BookOpen },
+        { id: 'comments', label: 'Bình luận', icon: MessageSquare },
+        { id: 'genres', label: 'Thể loại', icon: List },
+        { id: 'media', label: 'Thư viện ảnh', icon: ImageIcon },
+        { id: 'ads', label: 'Quảng cáo', icon: LayoutDashboard },
+        { id: 'users', label: 'Thành viên', icon: Users },
+        { id: 'reports', label: 'Báo lỗi', icon: Flag },
+        { id: 'static', label: 'Trang tĩnh', icon: FileText },
+        { id: 'settings', label: 'Cấu hình', icon: Settings },
+        { id: 'leech_configs', label: 'Cấu hình Leech', icon: Download }
+    ];
+
     return (
         <div className="min-h-screen bg-darker flex text-slate-200">
             <AppModal isOpen={modal.isOpen} type={modal.type} title={modal.title} message={modal.message} confirmText={modal.confirmText} defaultValue={modal.defaultValue} onConfirm={modal.onConfirm} onClose={closeModal}/>
-
-            {/* Sidebar */}
             <div className="w-64 bg-card border-r border-white/10 hidden md:flex flex-col flex-shrink-0">
-                <div className="h-16 flex items-center px-6 border-b border-white/10">
-                    <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">Admin Panel</span>
-                </div>
+                <div className="h-16 flex items-center px-6 border-b border-white/10"> <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">Admin Panel</span> </div>
                 <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-                    {[
-                        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-                        { id: 'comics', label: 'Truyện tranh', icon: BookOpen },
-                        { id: 'comments', label: 'Bình luận', icon: MessageSquare },
-                        { id: 'genres', label: 'Thể loại', icon: List },
-                        { id: 'media', label: 'Thư viện ảnh', icon: ImageIcon },
-                        { id: 'ads', label: 'Quảng cáo', icon: LayoutDashboard },
-                        { id: 'users', label: 'Thành viên', icon: Users },
-                        { id: 'reports', label: 'Báo lỗi', icon: Flag },
-                        { id: 'static', label: 'Trang tĩnh', icon: FileText },
-                        { id: 'settings', label: 'Cấu hình', icon: Settings },
-                        { id: 'leech_configs', label: 'Cấu hình Leech', icon: Download }
-                    ].map(item => (
+                    {allTabs.filter(item => AuthService.hasPermission(item.id)).map(item => (
                         <button key={item.id} onClick={() => setActiveTab(item.id as any)} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === item.id ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                             <item.icon size={18} /> {item.label}
                         </button>
                     ))}
                 </nav>
-                <div className="p-4 border-t border-white/10">
-                    <Link to="/" className="flex items-center gap-2 text-slate-400 hover:text-white mb-4 text-sm px-2"><ArrowLeft size={16}/> Về trang chủ</Link>
-                    <button onClick={AuthService.logout} className="flex items-center gap-2 text-red-400 hover:text-red-300 text-sm px-2 font-medium w-full"><LogOut size={16}/> Đăng xuất</button>
-                </div>
+                <div className="p-4 border-t border-white/10"> <Link to="/" className="flex items-center gap-2 text-slate-400 hover:text-white mb-4 text-sm px-2"><ArrowLeft size={16}/> Về trang chủ</Link> <button onClick={AuthService.logout} className="flex items-center gap-2 text-red-400 hover:text-red-300 text-sm px-2 font-medium w-full"><LogOut size={16}/> Đăng xuất</button> </div>
             </div>
-
-            {/* Mobile Header */}
-             <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-card border-b border-white/10 flex items-center justify-between px-4 z-50">
-                <span className="font-bold text-white">Admin Panel</span>
-                <button onClick={AuthService.logout}><LogOut size={20} className="text-red-400"/></button>
-            </div>
-
-
-            {/* Main Content */}
+             <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-card border-b border-white/10 flex items-center justify-between px-4 z-50"> <span className="font-bold text-white">Admin Panel</span> <button onClick={AuthService.logout}><LogOut size={20} className="text-red-400"/></button> </div>
             <div className="flex-1 overflow-y-auto h-screen relative pt-16 md:pt-0">
                 <div className="p-4 md:p-8 max-w-full mx-auto">
                     {activeTab === 'dashboard' && renderDashboard()}

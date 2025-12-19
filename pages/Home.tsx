@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { getComics } from '../services/mockData';
 import { DataProvider } from '../services/dataProvider';
@@ -29,24 +28,31 @@ const Home: React.FC = () => {
     fetchData();
   }, []);
 
-  useEffect(() => {
-      const interval = setInterval(() => {
-          setCurrentSlide((prev) => (prev === 9 ? 0 : prev + 1));
-      }, 5000);
-      return () => clearInterval(interval);
-  }, []);
+  const hotComics = [...comics].sort((a, b) => b.views - a.views);
+  const sliderComics = hotComics.slice(0, 10);
 
-  const nextSlide = () => setCurrentSlide((prev) => (prev === 9 ? 0 : prev + 1));
-  const prevSlide = () => setCurrentSlide((prev) => (prev === 0 ? 9 : prev - 1));
+  useEffect(() => {
+    if (sliderComics.length === 0) return;
+    const interval = setInterval(() => {
+        setCurrentSlide((prev) => (prev >= sliderComics.length - 1 ? 0 : prev + 1));
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [sliderComics.length]);
+
+  const nextSlide = () => {
+    if (sliderComics.length === 0) return;
+    setCurrentSlide((prev) => (prev >= sliderComics.length - 1 ? 0 : prev + 1));
+  };
+  const prevSlide = () => {
+    if (sliderComics.length === 0) return;
+    setCurrentSlide((prev) => (prev === 0 ? sliderComics.length - 1 : prev - 1));
+  };
 
   if (loading || !theme) {
     return <div className="min-h-screen flex items-center justify-center text-primary">Đang tải...</div>;
   }
 
-  // Sắp xếp truyện hot (lượt xem cao nhất) và truyện mới (đã được sắp xếp từ API)
-  const hotComics = [...comics].sort((a, b) => b.views - a.views);
   const latestComics = comics; // API đã trả về sắp xếp theo ngày cập nhật mới nhất
-  const sliderComics = hotComics.slice(0, 10); // Slider hiển thị truyện hot nhất
   
   const homeGenres = theme?.homeLayout?.homeGenres || [];
   
@@ -112,7 +118,7 @@ const Home: React.FC = () => {
             url={window.location.href}
         />
 
-        {showSlider && currentLayout !== 'minimalist' && (
+        {showSlider && currentLayout !== 'minimalist' && sliderComics.length > 0 && (
             <div className={`relative w-full overflow-hidden mb-10 group ${currentLayout === 'modern' ? 'h-[70vh] md:h-[80vh]' : 'h-[50vh] md:h-[60vh]'}`}>
                 {sliderComics.map((comic, index) => {
                     const hasChapters = comic.chapters && comic.chapters.length > 0;
@@ -144,7 +150,7 @@ const Home: React.FC = () => {
                                     <span className="px-3 py-1 bg-primary text-white text-xs font-bold rounded-full mb-4 inline-block shadow-lg shadow-primary/30">
                                         TOP {index + 1} NỔI BẬT
                                     </span>
-                                    <h1 className="text-3xl md:text-5xl font-extrabold text-white mb-4 leading-tight drop-shadow-lg">
+                                    <h1 className="text-2xl md:text-[2rem] leading-tight font-extrabold text-white mb-4 drop-shadow-lg">
                                         <Link to={`/truyen/${comic.slug || comic.id}`} className="hover:text-primary transition-colors">
                                             {comic.title}
                                         </Link>
@@ -188,7 +194,7 @@ const Home: React.FC = () => {
             </div>
         )}
 
-        <div className={`container mx-auto px-4 space-y-12 ${!showSlider || currentLayout === 'minimalist' ? 'mt-10' : ''}`}>
+        <div className={`container mx-auto px-4 space-y-12 ${!showSlider || currentLayout === 'minimalist' || sliderComics.length === 0 ? 'mt-10' : ''}`}>
             <AdDisplay position="home_header" />
 
             {showHot && renderComicsGrid("Truyện Hot", <Flame className="text-orange-500" />, hotComics.slice(0, hotCount), "#")}

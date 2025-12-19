@@ -4,7 +4,8 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
-const { rmSync, unlinkSync, existsSync } = require('fs');
+const os = require('os');
+const { rmSync, unlinkSync, existsSync, readdirSync, statSync } = require('fs');
 const crypto = require('crypto');
 
 // Helper for MD5 hashing
@@ -50,6 +51,27 @@ const logError = (context, err) => {
     console.error(msg);
     try { fs.appendFileSync(path.join(__dirname, 'server_error.log'), msg); } catch (e) {}
 };
+
+// NEW: Function to get directory size recursively
+const getDirectorySize = (dirPath) => {
+    let totalSize = 0;
+    try {
+        const files = readdirSync(dirPath);
+        for (const file of files) {
+            const filePath = path.join(dirPath, file);
+            const stats = statSync(filePath);
+            if (stats.isDirectory()) {
+                totalSize += getDirectorySize(filePath);
+            } else {
+                totalSize += stats.size;
+            }
+        }
+    } catch(e) {
+        logError('GET_DIR_SIZE', e);
+    }
+    return totalSize;
+};
+
 
 const requestUrl = (url, options = {}, redirectCount = 0) => {
     return new Promise((resolve, reject) => {
@@ -383,7 +405,9 @@ api.delete('/comics/:id', authMiddleware, (req, res) => {
                 }
             } catch (e) { logError('DELETE_COMIC_FOLDER', e); }
         }
-        safeQuery('DELETE FROM comics WHERE id=?', [req.params.id], res, () => res.json({message: 'ok'}));
+        safeQuery('DELETE FROM comics WHERE id=?', [req.params.id], res, () => {
+            safeQuery('DELETE FROM chapters WHERE comicId=?', [req.params.id], res, () => res.json({message: 'ok'}));
+        });
     });
 });
 
@@ -526,6 +550,46 @@ api.get('/analytics', authMiddleware, (req, res) => {
     }).catch(err => res.status(500).json(err));
 });
 
+// NEW: SYSTEM STATS
+api.get('/system-stats', authMiddleware, async (req, res) => {
+    let databaseRows = 0;
+    let imageStorageUsed = 0;
+    try {
+        imageStorageUsed = getDirectorySize(UPLOAD_ROOT);
+        if (db) {
+            const [rows] = await db.query(
+                `SELECT SUM(TABLE_ROWS) as totalRows 
+                 FROM INFORMATION_SCHEMA.TABLES 
+                 WHERE TABLE_SCHEMA = ?`, 
+                [process.env.DB_NAME]
+            );
+            databaseRows = rows[0]?.totalRows || 0;
+        }
+    } catch (e) {
+        logError('SYSTEM_STATS', e);
+    }
+    
+    let packageJson = {};
+    let lockJson = {};
+    try {
+        packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+    } catch(e) {}
+    try {
+        lockJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package-lock.json'), 'utf-8'));
+    } catch(e) {}
+    
+    res.json({
+        imageStorageUsed,
+        databaseRows,
+        nodeVersion: process.version,
+        reactVersion: packageJson.dependencies?.react?.replace('^', '') || lockJson.packages?.['node_modules/react']?.version || 'N/A',
+        viteVersion: packageJson.devDependencies?.vite?.replace('^', '') || lockJson.packages?.['node_modules/vite']?.version || 'N/A',
+        platform: os.platform(),
+        arch: os.arch()
+    });
+});
+
+
 // --- REPORTS ---
 api.get('/reports', authMiddleware, (req, res) => {
     const sql = `SELECT r.*, c.title as comicTitle, ch.title as chapterTitle FROM reports r LEFT JOIN comics c ON r.comicId = c.id LEFT JOIN chapters ch ON r.chapterId = ch.id ORDER BY r.created_at DESC`;
@@ -608,8 +672,24 @@ api.post('/static-pages', authMiddleware, (req, res) => {
 
 api.delete('/static-pages/:slug', authMiddleware, (req, res) => {
     const { slug } = req.params;
-    if (!slug) return res.status(400).json({ error: 'Slug is required' });
-    safeQuery('DELETE FROM static_pages WHERE slug = ?', [slug], res, () => res.json({ message: 'ok' }));
+    if (!slug) {
+        return res.status(400).json({ error: 'Slug is required' });
+    }
+    
+    if (!db) return res.status(503).json({ error: "No DB Connection" });
+
+    db.query('DELETE FROM static_pages WHERE slug = ?', [slug])
+        .then(([result]) => {
+            if (result.affectedRows > 0) {
+                res.json({ message: 'ok' });
+            } else {
+                res.status(404).json({ error: 'Page not found' });
+            }
+        })
+        .catch(err => {
+            logError('SQL_DELETE_STATIC_PAGE', err);
+            return res.status(500).json({ error: err.message });
+        });
 });
 
 

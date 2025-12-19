@@ -107,6 +107,7 @@ export interface ThemeConfig {
     
     // General Info
     siteName?: string;
+    logoUrl?: string; // New: Logo
     favicon?: string; // New: Favicon
     loginUrl?: string; // New: Admin Login URL
 
@@ -152,6 +153,18 @@ export interface Analytics {
     todayViews: number;
     monthViews: number;
 }
+
+// NEW: System Stats type
+export interface SystemStats {
+    imageStorageUsed: number;
+    databaseRows: number;
+    nodeVersion: string;
+    reactVersion: string;
+    viteVersion: string;
+    platform: string;
+    arch: string;
+}
+
 
 // NEW: Leech Configuration type
 export interface LeechConfig {

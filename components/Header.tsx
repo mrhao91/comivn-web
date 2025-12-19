@@ -4,11 +4,14 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Search, Menu, X, BookOpen, LayoutDashboard, LogOut, User } from 'lucide-react';
 import { AuthService } from '../services/auth';
 import { DataProvider } from '../services/dataProvider';
+import { ThemeConfig } from '../types';
+import { DEFAULT_THEME } from '../services/seedData';
 
 const Header: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [menuItems, setMenuItems] = useState<{label: string, url: string}[]>([]);
+  const [theme, setTheme] = useState<ThemeConfig>(DEFAULT_THEME);
+
   const navigate = useNavigate();
   const location = useLocation();
   
@@ -17,30 +20,21 @@ const Header: React.FC = () => {
   useEffect(() => {
       // Fetch dynamic menu from theme
       const loadTheme = async () => {
-          const theme = await DataProvider.getTheme();
-          if (theme.headerMenu && theme.headerMenu.length > 0) {
-              setMenuItems(theme.headerMenu);
-          } else {
-              // Fallback default
-              setMenuItems([
-                  { label: 'Trang chủ', url: '/' },
-                  { label: 'Thể loại', url: '/categories' }
-              ]);
-          }
+          const themeData = await DataProvider.getTheme();
+          setTheme({ ...DEFAULT_THEME, ...themeData });
       };
       loadTheme();
   }, []);
+
+  const menuItems = theme.headerMenu && theme.headerMenu.length > 0 
+    ? theme.headerMenu 
+    : DEFAULT_THEME.headerMenu || [];
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
       console.log("Searching for:", searchQuery);
     }
-  };
-
-  const handleLogout = () => {
-      AuthService.logout();
-      navigate('/');
   };
 
   // Use inline style for dynamic CSS variables from theme
@@ -55,12 +49,18 @@ const Header: React.FC = () => {
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 group">
-            <div className="w-8 h-8 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center text-white font-bold transform group-hover:scale-110 transition-transform">
-                C
-            </div>
-            <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400" style={{color: 'var(--header-text)'}}>
-                ComiVN
-            </span>
+            {theme.logoUrl ? (
+                <img src={theme.logoUrl} alt={theme.siteName} className="h-10 w-auto transition-transform group-hover:scale-105" />
+            ) : (
+                <>
+                    <div className="w-8 h-8 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center text-white font-bold transform group-hover:scale-110 transition-transform">
+                        C
+                    </div>
+                    <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400" style={{color: 'var(--header-text)'}}>
+                        {theme.siteName}
+                    </span>
+                </>
+            )}
         </Link>
 
         {/* Desktop Nav */}

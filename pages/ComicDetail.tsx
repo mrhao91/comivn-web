@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { DataProvider } from '../services/dataProvider';
@@ -201,7 +200,7 @@ const ComicDetail: React.FC = () => {
                 </div>
                 
                 <div className="flex-grow pt-4 text-center md:text-left text-white">
-                    <h1 className="text-3xl md:text-5xl font-extrabold mb-3 leading-tight tracking-tight">{comic.title}</h1>
+                    <h1 className="text-3xl md:text-4xl font-extrabold mb-3 leading-tight tracking-tight">{comic.title}</h1>
                     
                     <div className="flex flex-wrap justify-center md:justify-start gap-2 mb-6 text-sm">
                         {comic.genres.map(g => (
