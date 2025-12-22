@@ -192,6 +192,9 @@ const ComicDetail: React.FC = () => {
                             src={comic.coverImage} 
                             alt={comic.title} 
                             className="w-full h-full object-cover"
+                            width="288"
+                            height="432"
+                            fetchPriority="high"
                         />
                         <div className="absolute top-2 right-2 bg-primary/90 backdrop-blur text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">
                             {comic.status}
@@ -199,7 +202,7 @@ const ComicDetail: React.FC = () => {
                     </div>
                 </div>
                 
-                <div className="flex-grow pt-4 text-center md:text-left text-white">
+                <div className="flex-grow pt-4 text-center md:text-left text-white flex flex-col">
                     <h1 className="text-3xl md:text-4xl font-extrabold mb-3 leading-tight tracking-tight">{comic.title}</h1>
                     
                     <div className="flex flex-wrap justify-center md:justify-start gap-2 mb-6 text-sm">
@@ -219,6 +222,14 @@ const ComicDetail: React.FC = () => {
                                 <div className="flex flex-col text-left">
                                     <span className="text-xs text-slate-500">Lượt xem</span>
                                     <span className="font-bold">{comic.views.toLocaleString()}</span>
+                                </div>
+                            </div>
+                             <div className="w-px h-8 bg-white/10"></div>
+                            <div className="flex items-center gap-2">
+                                <div className="p-2 bg-purple-500/10 text-purple-400 rounded-lg"><BookOpen size={18}/></div>
+                                <div className="flex flex-col text-left">
+                                    <span className="text-xs text-slate-500">Số chương</span>
+                                    <span className="font-bold">{comic.chapters.length}</span>
                                 </div>
                             </div>
                             <div className="w-px h-8 bg-white/10"></div>
@@ -250,7 +261,7 @@ const ComicDetail: React.FC = () => {
                         </div>
                     </div>
                     
-                    {/* MOVED: DESCRIPTION SECTION */}
+                    {/* DESCRIPTION SECTION */}
                     <div className="bg-white/5 rounded-xl border border-white/5 p-4 text-left">
                         <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
                             <BookOpen size={18} className="text-primary"/> Nội dung
@@ -431,6 +442,8 @@ const ComicDetail: React.FC = () => {
                                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                                             alt={rec.title}
                                             loading="lazy"
+                                            width="100"
+                                            height="150"
                                         />
                                         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-1 pt-4">
                                             <div className="flex items-center justify-center gap-1 text-[10px] text-white font-medium">

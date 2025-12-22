@@ -15,10 +15,7 @@ const md5 = (str) => crypto.createHash('md5').update(str).digest('hex');
 // 1. CẤU HÌNH SERVER & MÔI TRƯỜNG
 // ==========================================
 const PORT = process.env.PORT || 3000;
-
-// XÁC ĐỊNH THƯ MỤC UPLOAD GỐC
 let UPLOAD_ROOT = path.join(__dirname, 'uploads');
-
 if (!fs.existsSync(UPLOAD_ROOT)) {
     try { fs.mkdirSync(UPLOAD_ROOT, { recursive: true }); } catch (e) { console.error("Lỗi tạo folder upload gốc:", e); }
 }
@@ -34,16 +31,14 @@ try { multer = require('multer'); } catch(e) { console.warn("⚠️ Chưa cài m
 
 dotenv.config();
 const app = express();
-
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cors({ origin: '*', optionsSuccessStatus: 200 }));
 app.disable('x-powered-by');
-
 app.use('/uploads', express.static(UPLOAD_ROOT));
 
 // ==========================================
-// 2. HELPER FUNCTIONS (Request & Bypass)
+// 2. HELPER FUNCTIONS
 // ==========================================
 const logError = (context, err) => {
     const time = new Date().toISOString();
@@ -52,7 +47,6 @@ const logError = (context, err) => {
     try { fs.appendFileSync(path.join(__dirname, 'server_error.log'), msg); } catch (e) {}
 };
 
-// NEW: Function to get directory size recursively
 const getDirectorySize = (dirPath) => {
     let totalSize = 0;
     try {
@@ -72,7 +66,6 @@ const getDirectorySize = (dirPath) => {
     return totalSize;
 };
 
-
 const requestUrl = (url, options = {}, redirectCount = 0) => {
     return new Promise((resolve, reject) => {
         if (redirectCount > 10) return reject(new Error('Too many redirects'));
@@ -81,7 +74,7 @@ const requestUrl = (url, options = {}, redirectCount = 0) => {
         
         const defaultHeaders = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Referer': parsedUrl.origin + '/',
             'Connection': 'keep-alive',
             'Accept-Language': 'vi-VN,vi;q=0.9'
@@ -102,6 +95,9 @@ const requestUrl = (url, options = {}, redirectCount = 0) => {
                 let newUrl = res.headers.location;
                 if (!newUrl.startsWith('http')) newUrl = new URL(newUrl, url).href;
                 return requestUrl(newUrl, options, redirectCount + 1).then(resolve).catch(reject);
+            }
+            if (res.statusCode !== 200) {
+                 return reject(new Error(`Remote Server Error: ${res.statusCode}`));
             }
             const encoding = res.headers['content-encoding'];
             let stream = res;
@@ -135,7 +131,6 @@ const authMiddleware = (req, res, next) => {
     else res.status(401).json({ error: 'Unauthorized' });
 };
 
-// API: Tải ảnh leech từ URL về host
 api.post('/upload-url', authMiddleware, async (req, res) => {
     const { url, folder, chapterNumber, index } = req.body;
     if (!url) return res.status(400).json({ error: 'Missing URL' });
@@ -146,7 +141,7 @@ api.post('/upload-url', authMiddleware, async (req, res) => {
     try {
         if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
         
-        const response = await requestUrl(url, { headers: { Referer: url } });
+        const response = await requestUrl(url);
         if (response.buffer && response.statusCode === 200) {
             const contentType = response.headers['content-type'] || '';
             let ext = '.jpg';
@@ -156,8 +151,6 @@ api.post('/upload-url', authMiddleware, async (req, res) => {
             let filename;
             if (folder && chapterNumber != null && index != null) {
                 filename = `${folder}-chap${chapterNumber}-${index}${ext}`;
-            } else if (folder) {
-                filename = `cover${ext}`;
             } else {
                 filename = `up-${Date.now()}-${Math.round(Math.random()*1E6)}${ext}`;
             }
@@ -174,7 +167,6 @@ api.post('/upload-url', authMiddleware, async (req, res) => {
     }
 });
 
-// API: Upload ảnh từ máy tính
 if (multer) {
     const storage = multer.diskStorage({
         destination: (req, file, cb) => {
@@ -185,6 +177,10 @@ if (multer) {
             cb(null, targetDir);
         },
         filename: (req, file, cb) => {
+            if (req.query.overwrite === 'true') {
+                cb(null, file.originalname);
+                return;
+            }
             const ext = path.extname(file.originalname) || '.jpg';
             const slug = req.query.folder;
             const chapNum = req.query.chapterNumber;
@@ -208,7 +204,6 @@ if (multer) {
     });
 }
 
-// Database Connection
 let db = null;
 if (mysql && process.env.DB_USER) {
     try {
@@ -221,9 +216,9 @@ if (mysql && process.env.DB_USER) {
             waitForConnections: true,
             connectionLimit: 10,
             charset: 'utf8mb4'
-        }).promise(); // Use promise wrapper
+        }).promise();
 
-        // NEW: Self-healing DB schema
+        // Tự động thêm cột 'permissions' nếu chưa có
         (async () => {
             try {
                 const [rows] = await db.query(`
@@ -232,24 +227,22 @@ if (mysql && process.env.DB_USER) {
                 `, [process.env.DB_NAME]);
 
                 if (rows[0].count === 0) {
-                    console.log("⚠️  Cột 'permissions' không tồn tại. Đang tự động thêm vào bảng 'users'...");
+                    console.log("⚠️ Cột 'permissions' không tồn tại. Đang thêm...");
                     await db.query('ALTER TABLE users ADD COLUMN permissions TEXT');
-                    console.log("✅  Đã thêm cột 'permissions' thành công.");
+                    console.log("✅ Đã thêm cột 'permissions' vào bảng 'users'.");
                 }
-            } catch (e) {
-                console.error("❌ Lỗi khi kiểm tra/thêm cột 'permissions':", e);
-            }
+            } catch (e) { console.error("Lỗi khi kiểm tra/thêm cột 'permissions':", e); }
         })();
 
     } catch(e) { logError('DB_INIT', e); }
 }
 
 const safeQuery = (sql, params, res, callback) => {
-    if (!db) return res.status(503).json({ error: "No DB Connection" });
+    if (!db) return res.status(503).json({ error: "Không thể kết nối đến Database." });
     db.query(sql, params)
         .then(([result]) => callback(result))
         .catch(err => {
-            logError('SQL', err);
+            logError('SQL_QUERY', err);
             return res.status(500).json({ error: err.message });
         });
 };
@@ -260,7 +253,10 @@ api.post('/login', (req, res) => {
     safeQuery('SELECT * FROM users WHERE username = ?', [username], res, (r) => {
         if (r.length && r[0].password == md5(password)) {
             const user = r[0];
-            const permissions = user.permissions ? JSON.parse(user.permissions) : [];
+            let permissions = [];
+            try {
+                if(user.permissions) permissions = JSON.parse(user.permissions);
+            } catch(e){}
             res.json({ 
                 success: true, 
                 user: { id: user.id, username: user.username, role: user.role, permissions }, 
@@ -272,22 +268,16 @@ api.post('/login', (req, res) => {
     });
 });
 
-
-// --- USERS ---
 api.get('/users', authMiddleware, (req, res) => {
     safeQuery('SELECT id, username, role, permissions FROM users', [], res, (r) => {
         const usersWithPermissions = r.map(u => {
             let permissions = [];
             if (u.permissions && typeof u.permissions === 'string') {
                 try {
-                    // Only parse if it looks like a valid JSON array to avoid errors with empty strings
                     if (u.permissions.trim().startsWith('[')) {
                         permissions = JSON.parse(u.permissions);
                     }
-                } catch (e) {
-                    console.error(`[Server] Failed to parse permissions for user ${u.id}:`, u.permissions);
-                    // Keep permissions as empty array on failure
-                }
+                } catch (e) { console.error(e); }
             }
             return { ...u, permissions };
         });
@@ -299,7 +289,7 @@ api.post('/users', authMiddleware, (req, res) => {
     const { id, username, password, role, permissions } = req.body;
     const perms = JSON.stringify(permissions || []);
 
-    if (id) { // Update
+    if (id) {
         let query = 'UPDATE users SET username=?, role=?, permissions=?';
         const params = [username, role, perms];
         if (password) {
@@ -309,8 +299,8 @@ api.post('/users', authMiddleware, (req, res) => {
         query += ' WHERE id=?';
         params.push(id);
         safeQuery(query, params, res, () => res.json({ message: 'ok' }));
-    } else { // Insert
-        if (!password) return res.status(400).json({ error: "Password is required for new user" });
+    } else {
+        if (!password) return res.status(400).json({ error: "Password is required" });
         safeQuery('INSERT INTO users (username, password, role, permissions) VALUES (?, ?, ?, ?)', 
             [username, md5(password), role, perms], res, () => res.json({ message: 'ok' }));
     }
@@ -353,27 +343,7 @@ api.get('/comics/:id', (req, res) => {
 });
 
 api.post('/comics', authMiddleware, async (req, res) => {
-    const originalBody = { ...req.body };
     let { id, title, slug, coverImage, author, status, genres, description, views, isRecommended, metaTitle, metaDescription, metaKeywords } = req.body;
-
-    if (id) {
-        try {
-            const [rows] = await db.query('SELECT title, author, coverImage, description, slug FROM comics WHERE id = ?', [id]);
-            if (rows.length > 0) {
-                const existing = rows[0];
-                title = (existing.title && existing.title.trim() !== '') ? existing.title : title;
-                author = (existing.author && existing.author.trim() !== '') ? existing.author : author;
-                coverImage = (existing.coverImage && existing.coverImage.trim() !== '') ? existing.coverImage : coverImage;
-                description = (existing.description && existing.description.trim() !== '') ? existing.description : description;
-                if (title === existing.title) {
-                    slug = existing.slug;
-                }
-            }
-        } catch (e) {
-            logError('COMIC_FETCH_FOR_UPDATE', e);
-        }
-    }
-
     if (slug) {
         const subFolder = slug.replace(/[^a-z0-9-]/gi, '_');
         const comicDir = path.join(UPLOAD_ROOT, subFolder);
@@ -381,39 +351,37 @@ api.post('/comics', authMiddleware, async (req, res) => {
             try { fs.mkdirSync(comicDir, { recursive: true }); } catch(e) {}
         }
     }
-
     const g = Array.isArray(genres) ? genres.join(',') : genres;
-    const sql = `INSERT INTO comics (id, title, slug, coverImage, author, status, genres, description, views, isRecommended, metaTitle, metaDescription, metaKeywords) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE title=?, slug=?, coverImage=?, author=?, status=?, genres=?, description=?, views=?, isRecommended=?, metaTitle=?, metaDescription=?, metaKeywords=?`;
-    const p = [id, title, slug, coverImage, author, status, g, description, views||0, isRecommended?1:0, metaTitle, metaDescription, metaKeywords, title, slug, coverImage, author, status, g, description, views||0, isRecommended?1:0, metaTitle, metaDescription, metaKeywords];
-    
-    try {
-        await db.query(sql, p);
-        res.json({message: 'ok'});
-    } catch(err) {
-        logError('SQL_SAVE_COMIC', err);
-        res.status(500).json({ error: err.message });
-    }
+    const sql = `INSERT INTO comics (id, title, slug, coverImage, author, status, genres, description, views, isRecommended, metaTitle, metaDescription, metaKeywords) 
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) 
+                 ON DUPLICATE KEY UPDATE title=?, slug=?, coverImage=?, author=?, status=?, genres=?, description=?, views=?, isRecommended=?, metaTitle=?, metaDescription=?, metaKeywords=?`;
+    const p = [
+        id, title, slug, coverImage, author, status, g, description, views||0, isRecommended?1:0, metaTitle, metaDescription, metaKeywords, 
+        title, slug, coverImage, author, status, g, description, views||0, isRecommended?1:0, metaTitle, metaDescription, metaKeywords
+    ];
+    safeQuery(sql, p, res, () => res.json({message: 'ok'}));
 });
 
 api.delete('/comics/:id', authMiddleware, (req, res) => {
     safeQuery('SELECT slug FROM comics WHERE id=?', [req.params.id], res, (comicResult) => {
         if (comicResult.length > 0 && comicResult[0].slug) {
-            const comicDir = path.join(UPLOAD_ROOT, comicResult[0].slug);
+            const subFolder = comicResult[0].slug.replace(/[^a-z0-9-]/gi, '_');
+            const comicDir = path.join(UPLOAD_ROOT, subFolder);
             try {
                 if (existsSync(comicDir)) {
                     rmSync(comicDir, { recursive: true, force: true });
                 }
-            } catch (e) { logError('DELETE_COMIC_FOLDER', e); }
+            } catch (e) {
+                logError('DELETE_COMIC_FOLDER', e);
+            }
         }
-        safeQuery('DELETE FROM comics WHERE id=?', [req.params.id], res, () => {
-            safeQuery('DELETE FROM chapters WHERE comicId=?', [req.params.id], res, () => res.json({message: 'ok'}));
-        });
+        safeQuery('DELETE FROM comics WHERE id=?', [req.params.id], res, () => res.json({ message: 'ok' }));
     });
 });
 
 api.post('/comics/:id/view', (req, res) => {
     safeQuery('UPDATE comics SET views = views + 1 WHERE id=?', [req.params.id], res, () => {
-        if (db) db.query('INSERT INTO daily_views (date, views) VALUES (CURRENT_DATE, 1) ON DUPLICATE KEY UPDATE views = views + 1');
+        if (db) db.query('INSERT INTO daily_views (date, views) VALUES (CURRENT_DATE(), 1) ON DUPLICATE KEY UPDATE views = views + 1');
         res.json({message: 'ok'});
     });
 });
@@ -441,15 +409,12 @@ api.delete('/chapters/:id', authMiddleware, (req, res) => {
         pages.forEach(page => {
             if (page.imageUrl && page.imageUrl.startsWith('/uploads/')) {
                 const imagePath = path.join(__dirname, page.imageUrl);
-                try {
-                    if (existsSync(imagePath)) unlinkSync(imagePath);
-                } catch (e) { logError('DELETE_CHAPTER_IMAGE', e); }
+                try { if (existsSync(imagePath)) unlinkSync(imagePath); } catch (e) {}
             }
         });
         safeQuery('DELETE FROM chapters WHERE id=?', [req.params.id], res, () => res.json({message: 'ok'}));
     });
 });
-
 
 api.get('/chapters/:id/pages', (req, res) => {
     safeQuery('SELECT * FROM chapter_pages WHERE chapterId=? ORDER BY pageNumber ASC', [req.params.id], res, (r) => res.json(r));
@@ -465,27 +430,17 @@ api.delete('/genres/:id', authMiddleware, (req, res) => {
     safeQuery('DELETE FROM genres WHERE id=?', [req.params.id], res, () => res.json({ message: 'ok' }));
 });
 
-
 // --- MEDIA ---
 api.get('/media/:path(*)?', authMiddleware, (req, res) => {
     const subPath = req.params.path || '';
-    // Normalize and resolve to prevent traversal attacks
     const currentDir = path.resolve(UPLOAD_ROOT, subPath);
-
-    // Security check: Ensure the resolved path is within UPLOAD_ROOT
-    if (!currentDir.startsWith(path.resolve(UPLOAD_ROOT))) {
-        return res.status(403).json({ error: 'Access denied' });
-    }
+    if (!currentDir.startsWith(path.resolve(UPLOAD_ROOT))) return res.status(403).json({ error: 'Access denied' });
 
     const getFiles = (dir, urlPrefix = '') => {
         let results = [];
         try {
-            if (!fs.existsSync(dir)) {
-                return [];
-            }
+            if (!fs.existsSync(dir)) return [];
             const list = fs.readdirSync(dir);
-            
-            // Sort to show folders first, then by name
             list.sort((a, b) => {
                 const statA = fs.statSync(path.join(dir, a));
                 const statB = fs.statSync(path.join(dir, b));
@@ -493,20 +448,17 @@ api.get('/media/:path(*)?', authMiddleware, (req, res) => {
                 if (!statA.isDirectory() && statB.isDirectory()) return 1;
                 return a.localeCompare(b);
             });
-
             list.forEach(file => {
                 const p = path.join(dir, file);
                 const stat = fs.statSync(p);
-                if (stat && stat.isDirectory()) {
+                if (stat.isDirectory()) {
                     results.push({ name: file, url: '', size: 0, created: stat.birthtime, isDir: true });
                 } else {
                     const fileUrl = path.join('/uploads', urlPrefix, file).replace(/\\/g, '/');
                     results.push({ name: file, url: fileUrl, size: stat.size, created: stat.birthtime, isDir: false });
                 }
             });
-        } catch(e) {
-            logError('GET_MEDIA', e);
-        }
+        } catch(e) {}
         return results;
     };
     res.json(getFiles(currentDir, subPath));
@@ -514,246 +466,147 @@ api.get('/media/:path(*)?', authMiddleware, (req, res) => {
 
 api.delete('/media', authMiddleware, (req, res) => {
     const { filePath } = req.body;
-    if (!filePath) {
-        return res.status(400).json({ error: "File path is required" });
-    }
-
     const p = path.resolve(UPLOAD_ROOT, filePath);
-
-    if (!p.startsWith(path.resolve(UPLOAD_ROOT))) {
-        return res.status(403).json({ error: "Access denied" });
-    }
-
+    if (!p.startsWith(path.resolve(UPLOAD_ROOT))) return res.status(403).json({ error: "Access denied" });
     if (fs.existsSync(p)) {
-        const s = fs.statSync(p);
-        if (s.isDirectory()) {
-            return res.status(400).json({error: "Phải xóa qua FTP/File Manager"});
-        }
+        if (fs.statSync(p).isDirectory()) return res.status(400).json({error: "Folders must be deleted via FTP"});
         fs.unlink(p, (err) => {
-            if (err) {
-                 logError('DELETE_MEDIA', err);
-                return res.status(500).json({error: 'Failed to delete file'});
-            }
+            if (err) return res.status(500).json({error: 'Failed to delete'});
             res.json({message: 'ok'});
         });
-    } else {
-        res.status(404).json({error: 'not found'});
-    }
+    } else res.status(404).json({error: 'not found'});
 });
 
-
-// --- ANALYTICS ---
+// --- ANALYTICS & STATS ---
 api.get('/analytics', authMiddleware, (req, res) => {
-    if (!db) return res.json({ totalViews: 0, todayViews: 0, monthViews: 0 });
-    db.query('SELECT (SELECT SUM(views) FROM comics) as total, (SELECT views FROM daily_views WHERE date = CURRENT_DATE) as today, (SELECT SUM(views) FROM daily_views WHERE MONTH(date) = MONTH(CURRENT_DATE)) as month').then(([[r]]) => {
-        res.json({ totalViews: r.total || 0, todayViews: r.today || 0, monthViews: r.month || 0 });
-    }).catch(err => res.status(500).json(err));
+    const sql = `SELECT 
+        (SELECT SUM(views) FROM comics) as total, 
+        (SELECT views FROM daily_views WHERE date = CURRENT_DATE()) as today,
+        (SELECT SUM(views) FROM daily_views WHERE date >= CURDATE() - INTERVAL 30 DAY) as month
+    `;
+    safeQuery(sql, [], res, r => res.json({
+        totalViews: r[0].total || 0,
+        todayViews: r[0].today || 0,
+        monthViews: r[0].month || 0
+    }));
 });
 
-// NEW: SYSTEM STATS
+api.get('/analytics/daily-views', authMiddleware, (req, res) => {
+    safeQuery('SELECT date, views FROM daily_views WHERE date >= CURDATE() - INTERVAL 30 DAY ORDER BY date ASC', [], res, r => res.json(r));
+});
+
 api.get('/system-stats', authMiddleware, async (req, res) => {
     let databaseRows = 0;
     let imageStorageUsed = 0;
     try {
         imageStorageUsed = getDirectorySize(UPLOAD_ROOT);
         if (db) {
-            const [rows] = await db.query(
-                `SELECT SUM(TABLE_ROWS) as totalRows 
-                 FROM INFORMATION_SCHEMA.TABLES 
-                 WHERE TABLE_SCHEMA = ?`, 
-                [process.env.DB_NAME]
-            );
+            const [rows] = await db.query(`SELECT SUM(TABLE_ROWS) as totalRows FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ?`, [process.env.DB_NAME]);
             databaseRows = rows[0]?.totalRows || 0;
         }
-    } catch (e) {
-        logError('SYSTEM_STATS', e);
-    }
-    
-    let packageJson = {};
-    let lockJson = {};
-    try {
-        packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
-    } catch(e) {}
-    try {
-        lockJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package-lock.json'), 'utf-8'));
-    } catch(e) {}
-    
-    res.json({
-        imageStorageUsed,
-        databaseRows,
-        nodeVersion: process.version,
-        reactVersion: packageJson.dependencies?.react?.replace('^', '') || lockJson.packages?.['node_modules/react']?.version || 'N/A',
-        viteVersion: packageJson.devDependencies?.vite?.replace('^', '') || lockJson.packages?.['node_modules/vite']?.version || 'N/A',
-        platform: os.platform(),
-        arch: os.arch()
-    });
+    } catch (e) {}
+    res.json({ imageStorageUsed, databaseRows, nodeVersion: process.version, platform: os.platform(), arch: os.arch() });
 });
 
-
-// --- REPORTS ---
+// --- REPORTS, ADS, THEME, COMMENTS, STATIC ---
 api.get('/reports', authMiddleware, (req, res) => {
-    const sql = `SELECT r.*, c.title as comicTitle, ch.title as chapterTitle FROM reports r LEFT JOIN comics c ON r.comicId = c.id LEFT JOIN chapters ch ON r.chapterId = ch.id ORDER BY r.created_at DESC`;
-    safeQuery(sql, [], res, (r) => res.json(r));
+    safeQuery(`SELECT r.*, c.title as comicTitle, ch.title as chapterTitle FROM reports r LEFT JOIN comics c ON r.comicId = c.id LEFT JOIN chapters ch ON r.chapterId = ch.id ORDER BY r.created_at DESC`, [], res, r => res.json(r));
 });
-api.post('/reports', (req, res) => {
-    safeQuery('INSERT INTO reports (comicId, chapterId, message) VALUES (?, ?, ?)', [req.body.comicId, req.body.chapterId, req.body.message], res, () => res.json({message: 'ok'}));
-});
-api.delete('/reports/:id', authMiddleware, (req, res) => {
-    safeQuery('DELETE FROM reports WHERE id=?', [req.params.id], res, () => res.json({ message: 'ok' }));
-});
+api.post('/reports', (req, res) => safeQuery('INSERT INTO reports (comicId, chapterId, message) VALUES (?, ?, ?)', [req.body.comicId, req.body.chapterId, req.body.message], res, () => res.json({message: 'ok'})));
+api.delete('/reports/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM reports WHERE id=?', [req.params.id], res, () => res.json({ message: 'ok' })));
 
-// --- ADS ---
 api.get('/ads', (req, res) => safeQuery('SELECT * FROM ads', [], res, r => res.json(r.map(a => ({...a, isActive: a.isActive === 1})))));
 api.post('/ads', authMiddleware, (req, res) => {
     const { id, position, imageUrl, linkUrl, isActive, title } = req.body;
-    const active = isActive ? 1 : 0;
-    const sql = 'INSERT INTO ads (id, position, imageUrl, linkUrl, isActive, title) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE position=?, imageUrl=?, linkUrl=?, isActive=?, title=?';
-    const params = [id, position, imageUrl, linkUrl, active, title, position, imageUrl, linkUrl, active, title];
-    safeQuery(sql, params, res, () => res.json({ message: 'Saved' }));
+    safeQuery('INSERT INTO ads (id, position, imageUrl, linkUrl, isActive, title) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE position=?, imageUrl=?, linkUrl=?, isActive=?, title=?', [id, position, imageUrl, linkUrl, isActive?1:0, title, position, imageUrl, linkUrl, isActive?1:0, title], res, () => res.json({ message: 'Saved' }));
 });
-api.delete('/ads/:id', authMiddleware, (req, res) => {
-    safeQuery('DELETE FROM ads WHERE id=?', [req.params.id], res, () => res.json({ message: 'ok' }));
-});
+api.delete('/ads/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM ads WHERE id=?', [req.params.id], res, () => res.json({ message: 'ok' })));
 
-// --- THEME ---
-api.get('/theme', (req, res) => {
-    safeQuery('SELECT theme_config FROM settings WHERE id = 1', [], res, (results) => {
-        if (results.length > 0) {
-            try {
-                const theme = JSON.parse(results[0].theme_config || '{}');
-                res.json(theme);
-            } catch (e) { res.json({}); }
-        } else { res.json({}); }
-    });
-});
+api.get('/theme', (req, res) => safeQuery('SELECT theme_config FROM settings WHERE id = 1', [], res, r => res.json(r.length > 0 ? JSON.parse(r[0].theme_config || '{}') : {})));
+api.post('/theme', authMiddleware, (req, res) => safeQuery('UPDATE settings SET theme_config = ? WHERE id = 1', [JSON.stringify(req.body)], res, () => res.json({ message: 'ok' })));
 
-api.post('/theme', authMiddleware, (req, res) => {
-    const themeConfig = JSON.stringify(req.body);
-    safeQuery('UPDATE settings SET theme_config = ? WHERE id = 1', [themeConfig], res, () => {
-        res.json({ message: 'ok' });
-    });
-});
-
-// --- COMMENTS ---
 api.get('/comments', (req, res) => {
     const sql = `SELECT c.*, co.title as comicTitle FROM comments c LEFT JOIN comics co ON c.comicId = co.id ORDER BY c.date DESC`;
-    safeQuery(sql, [], res, (r) => {
-        res.json(r.map(c => ({...c, isApproved: c.isApproved === 1})));
-    });
+    safeQuery(sql, [], res, (r) => res.json(r.map(c => ({...c, isApproved: c.isApproved === 1}))));
 });
+api.post('/comments', (req, res) => safeQuery('INSERT INTO comments (id, comicId, userName, content, date, isApproved, rating) VALUES (?, ?, ?, ?, ?, 0, ?)', [req.body.id, req.body.comicId, req.body.userName, req.body.content, req.body.date, req.body.rating], res, () => res.json({message: 'ok'})));
+api.put('/comments/:id/approve', authMiddleware, (req, res) => safeQuery('UPDATE comments SET isApproved=1 WHERE id=?', [req.params.id], res, () => res.json({message: 'ok'})));
+api.delete('/comments/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM comments WHERE id=?', [req.params.id], res, () => res.json({message: 'ok'})));
 
-api.post('/comments', (req, res) => {
-    const { id, comicId, userName, content, date, rating } = req.body;
-    safeQuery('INSERT INTO comments (id, comicId, userName, content, date, isApproved, rating) VALUES (?, ?, ?, ?, ?, 0, ?)', [id, comicId, userName, content, date, rating], res, () => res.json({message: 'ok'}));
-});
-
-api.put('/comments/:id/approve', authMiddleware, (req, res) => {
-    safeQuery('UPDATE comments SET isApproved=1 WHERE id=?', [req.params.id], res, () => res.json({message: 'ok'}));
-});
-api.delete('/comments/:id', authMiddleware, (req, res) => {
-    safeQuery('DELETE FROM comments WHERE id=?', [req.params.id], res, () => res.json({message: 'ok'}));
-});
-
-// --- STATIC PAGES ---
 api.get('/static-pages', (req, res) => safeQuery('SELECT * FROM static_pages', [], res, r => res.json(r)));
-api.get('/static-pages/:slug', (req, res) => {
-    safeQuery('SELECT * FROM static_pages WHERE slug = ?', [req.params.slug], res, r => {
-        if (r.length > 0) res.json(r[0]);
-        else res.status(404).json({ error: 'Not found' });
-    });
-});
+api.get('/static-pages/:slug', (req, res) => safeQuery('SELECT * FROM static_pages WHERE slug = ?', [req.params.slug], res, r => r.length > 0 ? res.json(r[0]) : res.status(404).json({ error: 'Not found' })));
 api.post('/static-pages', authMiddleware, (req, res) => {
-    const { slug, title, content, metaTitle, metaDescription, metaKeywords } = req.body;
-    if (!slug || !title) return res.status(400).json({ error: 'Slug and title are required' });
-    const sql = `INSERT INTO static_pages (slug, title, content, metaTitle, metaDescription, metaKeywords) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE title=?, content=?, metaTitle=?, metaDescription=?, metaKeywords=?`;
-    const params = [slug, title, content, metaTitle, metaDescription, metaKeywords, title, content, metaTitle, metaDescription, metaKeywords];
-    safeQuery(sql, params, res, () => res.json({ message: 'ok' }));
+    const { slug, title, content } = req.body;
+    safeQuery(`INSERT INTO static_pages (slug, title, content) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE title=?, content=?`, [slug, title, content, title, content], res, () => res.json({ message: 'ok' }));
 });
+api.delete('/static-pages/:slug', authMiddleware, (req, res) => safeQuery('DELETE FROM static_pages WHERE slug = ?', [req.params.slug], res, () => res.json({ message: 'ok' })));
 
-api.delete('/static-pages/:slug', authMiddleware, (req, res) => {
-    const { slug } = req.params;
-    if (!slug) {
-        return res.status(400).json({ error: 'Slug is required' });
-    }
-    
-    if (!db) return res.status(503).json({ error: "No DB Connection" });
-
-    db.query('DELETE FROM static_pages WHERE slug = ?', [slug])
-        .then(([result]) => {
-            if (result.affectedRows > 0) {
-                res.json({ message: 'ok' });
-            } else {
-                res.status(404).json({ error: 'Page not found' });
-            }
-        })
-        .catch(err => {
-            logError('SQL_DELETE_STATIC_PAGE', err);
-            return res.status(500).json({ error: err.message });
-        });
-});
-
-
-// --- LEECH CONFIGS ---
-api.get('/leech-configs', authMiddleware, (req, res) => {
-    safeQuery('SELECT * FROM leech_config ORDER BY name', [], res, (r) => {
-        res.json(r.map(c => ({...c, uploadCoverImage: !!c.uploadCoverImage})));
-    });
-});
-
+// --- LEECH ---
+api.get('/leech-configs', authMiddleware, (req, res) => safeQuery('SELECT * FROM leech_config ORDER BY name', [], res, (r) => res.json(r.map(c => ({...c, uploadCoverImage: !!c.uploadCoverImage})))));
 api.post('/leech-configs', authMiddleware, (req, res) => {
     const { id, name, baseUrl, comicTitleSelector, comicCoverSelector, comicAuthorSelector, uploadCoverImage, comicDescriptionSelector, chapterLinkSelector, chapterImageSelector, imageSrcAttribute } = req.body;
     const sql = `INSERT INTO leech_config (id, name, baseUrl, comicTitleSelector, comicCoverSelector, comicAuthorSelector, uploadCoverImage, comicDescriptionSelector, chapterLinkSelector, chapterImageSelector, imageSrcAttribute) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=?, baseUrl=?, comicTitleSelector=?, comicCoverSelector=?, comicAuthorSelector=?, uploadCoverImage=?, comicDescriptionSelector=?, chapterLinkSelector=?, chapterImageSelector=?, imageSrcAttribute=?`;
-    const params = [id, name, baseUrl, comicTitleSelector, comicCoverSelector, comicAuthorSelector, uploadCoverImage ? 1 : 0, comicDescriptionSelector, chapterLinkSelector, chapterImageSelector, imageSrcAttribute, name, baseUrl, comicTitleSelector, comicCoverSelector, comicAuthorSelector, uploadCoverImage ? 1 : 0, comicDescriptionSelector, chapterLinkSelector, chapterImageSelector, imageSrcAttribute];
+    const params = [id, name, baseUrl, comicTitleSelector, comicCoverSelector, comicAuthorSelector, uploadCoverImage?1:0, comicDescriptionSelector, chapterLinkSelector, chapterImageSelector, imageSrcAttribute, name, baseUrl, comicTitleSelector, comicCoverSelector, comicAuthorSelector, uploadCoverImage?1:0, comicDescriptionSelector, chapterLinkSelector, chapterImageSelector, imageSrcAttribute];
     safeQuery(sql, params, res, () => res.json({ message: 'ok' }));
 });
+api.delete('/leech-configs/:id', authMiddleware, (req, res) => safeQuery('DELETE FROM leech_config WHERE id=?', [req.params.id], res, () => res.json({ message: 'ok' })));
 
-api.delete('/leech-configs/:id', authMiddleware, (req, res) => {
-    safeQuery('DELETE FROM leech_config WHERE id=?', [req.params.id], res, () => res.json({ message: 'ok' }));
-});
-
-// --- LEECH PROXY ---
 api.post('/leech', async (req, res) => {
     const { url } = req.body;
-    if (!url) {
-        return res.status(400).json({ error: 'Missing URL' });
-    }
     try {
-        const response = await requestUrl(url, { headers: { Referer: url } });
-        if (response.statusCode === 200) {
-            res.json({ success: true, html: response.text });
-        } else {
-            let errorMsg = `HTTP Error ${response.statusCode}`;
-            if (response.statusCode === 403 || response.statusCode === 503) {
-                 errorMsg += ' (Possibly blocked by Cloudflare/Bot protection)';
-                 // Also return the partial HTML if available
-                 return res.json({ success: false, error: errorMsg, html: response.text });
+        const response = await requestUrl(url);
+        if (response.statusCode === 200) res.json({ success: true, html: response.text });
+        else res.json({ success: false, error: `HTTP ${response.statusCode}` });
+    } catch (error) { res.json({ success: false, error: error.message }); }
+});
+
+api.post('/proxy-image', authMiddleware, async (req, res) => {
+    const { url } = req.body;
+
+    if (url && url.startsWith('/uploads/')) {
+        try {
+            const relativePath = path.normalize(url.substring('/uploads/'.length)).replace(/^(\.\.[\/\\])+/, '');
+            const filePath = path.join(UPLOAD_ROOT, relativePath);
+
+            if (!filePath.startsWith(UPLOAD_ROOT)) {
+                return res.status(403).send('Forbidden');
             }
-            res.json({ success: false, error: errorMsg });
+
+            if (fs.existsSync(filePath)) {
+                res.sendFile(filePath, (err) => {
+                    if (err) {
+                        logError('PROXY_SENDFILE', err);
+                        res.status(500).send('Error reading file');
+                    }
+                });
+            } else {
+                res.status(404).send('File not found');
+            }
+        } catch (error) {
+            logError('PROXY_LOCAL_FILE', error);
+            res.status(500).send(error.message);
         }
-    } catch (error) {
-        logError('LEECH', error);
-        res.json({ success: false, error: error.message });
+    } else {
+        try {
+            const response = await requestUrl(url);
+            if (response.statusCode === 200) {
+                res.setHeader('Content-Type', response.headers['content-type'] || 'image/jpeg');
+                res.send(response.buffer);
+            } else {
+                res.status(response.statusCode).send('Error');
+            }
+        } catch (error) {
+            logError('PROXY_EXTERNAL_URL', error);
+            res.status(500).send(error.message);
+        }
     }
 });
 
-// ==========================================
-// 4. SERVE FRONTEND & START SERVER
-// ==========================================
 app.use('/v1', api);
-
-// Serve static files from the 'dist' directory
 const staticPath = path.join(__dirname, 'dist');
 app.use(express.static(staticPath));
-
-// For any other request, serve index.html for client-side routing
-app.get('*', (req, res) => {
-    res.sendFile(path.join(staticPath, 'index.html'));
-});
+app.get('*', (req, res) => res.sendFile(path.join(staticPath, 'index.html')));
 
 http.createServer(app).listen(PORT, () => {
-    console.log(`🚀 Server is listening on http://localhost:${PORT}`);
-    if (!db) {
-        console.warn('⚠️  Database is NOT connected. API will not work correctly.');
-        console.warn('👉  Check your .env file and ensure MySQL is running.');
-    }
+    console.log(`🚀 Server listening on http://localhost:${PORT}`);
 });

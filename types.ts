@@ -119,6 +119,7 @@ export interface ThemeConfig {
     // Categories Page SEO
     categoriesMetaTitle?: string;
     categoriesMetaDescription?: string;
+    // FIX: Renamed property to categoriesMetaKeywords to match its usage in seedData.ts and Categories.tsx.
     categoriesMetaKeywords?: string;
 }
 
@@ -152,6 +153,11 @@ export interface Analytics {
     totalViews: number;
     todayViews: number;
     monthViews: number;
+}
+// FIX: Add DailyView interface
+export interface DailyView {
+    date: string;
+    views: number;
 }
 
 // NEW: System Stats type

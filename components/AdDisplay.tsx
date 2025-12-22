@@ -47,6 +47,8 @@ const AdDisplay: React.FC<AdDisplayProps> = ({ position, className = '' }) => {
                         src={ad.imageUrl} 
                         alt={ad.title || "Quảng cáo"} 
                         className="w-full h-auto object-cover"
+                        width="400"
+                        height="600"
                     />
                      <div className="absolute top-0 right-0 bg-black/50 text-white text-[10px] px-2 py-0.5">AD</div>
                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors"></div>
@@ -72,6 +74,8 @@ const AdDisplay: React.FC<AdDisplayProps> = ({ position, className = '' }) => {
                     style={{ 
                         maxHeight: (position === 'reader_bottom' || position === 'reader_top' || position === 'reader_middle') ? '600px' : 'auto' 
                     }}
+                    width="1200"
+                    height="250"
                 />
                 <div className="absolute top-0 right-0 bg-black/50 text-white text-[10px] px-2 py-0.5">AD</div>
             </a>

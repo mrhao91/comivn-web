@@ -133,7 +133,7 @@ const Home: React.FC = () => {
                         className={`absolute inset-0 transition-opacity duration-700 ease-in-out ${index === currentSlide ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}
                     >
                         <div className="absolute inset-0">
-                            <img src={comic.coverImage} className="w-full h-full object-cover opacity-40 blur-sm scale-105" alt="Background" />
+                            <img src={comic.coverImage} className="w-full h-full object-cover opacity-40 blur-sm scale-105" alt="Background" width="1280" height="720" fetchPriority={index === 0 ? "high" : "auto"} />
                             <div className="absolute inset-0 bg-gradient-to-t from-darker via-darker/60 to-transparent"></div>
                             <div className="absolute inset-0 bg-gradient-to-r from-darker via-darker/40 to-transparent"></div>
                         </div>
@@ -144,6 +144,9 @@ const Home: React.FC = () => {
                                     src={comic.coverImage} 
                                     alt={comic.title}
                                     className="hidden md:block w-48 h-72 object-cover rounded-lg shadow-2xl border-2 border-white/10"
+                                    width="192"
+                                    height="288"
+                                    fetchPriority={index === 0 ? "high" : "auto"}
                                 />
                                 
                                 <div className="max-w-2xl mb-2">
@@ -158,9 +161,8 @@ const Home: React.FC = () => {
                                     <div className="flex flex-wrap gap-2 mb-4 text-xs md:text-sm text-slate-300">
                                          {comic.genres.map(g => <span key={g} className="px-2 py-1 bg-white/10 rounded">{g}</span>)}
                                     </div>
-                                    <p className="text-slate-300 text-sm md:text-base line-clamp-2 md:line-clamp-3 mb-8 max-w-lg drop-shadow-md">
-                                        {comic.description}
-                                    </p>
+                                    <div className="text-slate-300 text-sm md:text-base line-clamp-2 md:line-clamp-3 mb-8 max-w-lg drop-shadow-md" dangerouslySetInnerHTML={{ __html: comic.description }} />
+
                                     <div className="flex gap-3">
                                         <Link to={readLink} className="bg-primary hover:bg-primary/90 text-white px-8 py-3 rounded-xl font-bold transition-all shadow-lg shadow-primary/25 hover:-translate-y-1">
                                             {readLabel}

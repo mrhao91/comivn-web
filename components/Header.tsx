@@ -50,7 +50,7 @@ const Header: React.FC = () => {
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 group">
             {theme.logoUrl ? (
-                <img src={theme.logoUrl} alt={theme.siteName} className="h-10 w-auto transition-transform group-hover:scale-105" />
+                <img src={theme.logoUrl} alt={theme.siteName} className="h-10 w-auto transition-transform group-hover:scale-105" width="120" height="40" />
             ) : (
                 <>
                     <div className="w-8 h-8 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center text-white font-bold transform group-hover:scale-110 transition-transform">

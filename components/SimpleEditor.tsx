@@ -17,7 +17,7 @@ interface SimpleEditorProps {
     height?: string;
 }
 
-const SimpleEditor: React.FC<SimpleEditorProps> = ({ value, onChange, label, height = "200px" }) => {
+export default function SimpleEditor({ value, onChange, label, height = "200px" }: SimpleEditorProps) {
     const editorRef = useRef<HTMLDivElement>(null);
     const isTyping = useRef(false);
 
@@ -181,6 +181,4 @@ const SimpleEditor: React.FC<SimpleEditorProps> = ({ value, onChange, label, hei
             </p>
         </div>
     );
-};
-
-export default SimpleEditor;
+}

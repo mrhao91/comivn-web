@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getChapterPages, getComicById } from '../services/mockData';
@@ -271,6 +270,8 @@ const Reader: React.FC = () => {
                         alt={`Trang ${page.pageNumber}`} 
                         className="w-full h-auto max-w-full block"
                         loading="lazy"
+                        width="800"
+                        height="1200"
                     />
                     {idx === Math.floor(pages.length / 2) && (
                         <div className="w-full bg-[#111] py-4">

@@ -1,11 +1,11 @@
-
 import React, { useEffect, useState } from 'react';
 import { DataProvider } from '../services/dataProvider';
 import { Comic, Genre, ThemeConfig } from '../types';
 import ComicCard from '../components/ComicCard';
-import { Tags, Filter } from 'lucide-react';
+import { Tags, Filter, LayoutGrid, List } from 'lucide-react';
 import SEOHead from '../components/SEOHead';
 import { DEFAULT_THEME } from '../services/seedData';
+import { Link } from 'react-router-dom';
 
 const Categories: React.FC = () => {
   const [genres, setGenres] = useState<Genre[]>([]);
@@ -13,6 +13,8 @@ const Categories: React.FC = () => {
   const [theme, setTheme] = useState<ThemeConfig>(DEFAULT_THEME);
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [sortOrder, setSortOrder] = useState<'latest' | 'title-asc' | 'title-desc'>('latest');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -43,6 +45,13 @@ const Categories: React.FC = () => {
   const filteredComics = selectedGenre 
     ? comics.filter(c => c.genres.includes(selectedGenre)) 
     : comics;
+
+  let sortedAndFilteredComics = [...filteredComics];
+  if (sortOrder === 'title-asc') {
+    sortedAndFilteredComics.sort((a, b) => a.title.localeCompare(b.title));
+  } else if (sortOrder === 'title-desc') {
+    sortedAndFilteredComics.sort((a, b) => b.title.localeCompare(a.title));
+  }
 
   const currentGenreObj = genres.find(g => g.name === selectedGenre);
 
@@ -107,21 +116,74 @@ const Categories: React.FC = () => {
             </div>
 
             <div className="flex-grow">
-                 <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-xl font-bold text-white">
-                        {selectedGenre ? `Truyện ${selectedGenre}` : 'Tất cả truyện'}
-                    </h2>
-                    <span className="text-sm text-slate-500">{filteredComics.length} kết quả</span>
+                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
+                    <div>
+                        <h2 className="text-xl font-bold text-white">
+                            {selectedGenre ? `Truyện ${selectedGenre}` : 'Tất cả truyện'}
+                        </h2>
+                        <span className="text-sm text-slate-500">{sortedAndFilteredComics.length} kết quả</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <select
+                            value={sortOrder}
+                            onChange={(e) => setSortOrder(e.target.value as any)}
+                            className="bg-card border border-white/10 rounded-md px-3 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-primary"
+                        >
+                            <option value="latest">Mới nhất</option>
+                            <option value="title-asc">Tên A-Z</option>
+                            <option value="title-desc">Tên Z-A</option>
+                        </select>
+                        <div className="flex items-center p-0.5 bg-card rounded-md border border-white/10">
+                            <button
+                                title="Xem dạng lưới"
+                                onClick={() => setViewMode('grid')}
+                                className={`p-1.5 rounded ${viewMode === 'grid' ? 'bg-primary text-white' : 'text-slate-400 hover:text-white'}`}
+                            >
+                                <LayoutGrid size={18} />
+                            </button>
+                            <button
+                                title="Xem dạng danh sách"
+                                onClick={() => setViewMode('list')}
+                                className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-primary text-white' : 'text-slate-400 hover:text-white'}`}
+                            >
+                                <List size={18} />
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
                 {loading ? (
                     <div className="text-center py-10 text-primary">Đang tải...</div>
-                ) : filteredComics.length > 0 ? (
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-8">
-                        {filteredComics.map(comic => (
-                            <ComicCard key={comic.id} comic={comic} />
-                        ))}
-                    </div>
+                ) : sortedAndFilteredComics.length > 0 ? (
+                    viewMode === 'grid' ? (
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-4 gap-y-8">
+                            {sortedAndFilteredComics.map(comic => (
+                                <ComicCard key={comic.id} comic={comic} />
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex flex-col gap-4">
+                            {sortedAndFilteredComics.map(comic => (
+                                <Link to={`/truyen/${comic.slug || comic.id}`} key={comic.id} className="group bg-card/50 hover:bg-card border border-transparent hover:border-white/10 p-3 rounded-lg flex gap-4 transition-colors">
+                                    <div className="flex-shrink-0 w-20 h-28 rounded-md overflow-hidden bg-dark">
+                                        <img src={comic.coverImage} alt={comic.title} className="w-full h-full object-cover"/>
+                                    </div>
+                                    <div className="flex-1 flex flex-col justify-between py-1 min-w-0">
+                                        <div>
+                                            <h3 className="font-bold text-base text-slate-200 truncate group-hover:text-primary transition-colors">{comic.title}</h3>
+                                            <p className="text-xs text-slate-400 mt-1 line-clamp-1">
+                                                {comic.chapters[0] ? `Chương ${comic.chapters[0].number}` : 'Chưa có chương'}
+                                            </p>
+                                            <p className="text-xs text-slate-500 mt-2 line-clamp-2" dangerouslySetInnerHTML={{ __html: comic.description.replace(/<[^>]+>/g, '') }} />
+                                        </div>
+                                        <p className="text-xs text-slate-400 mt-2 line-clamp-1">
+                                            {comic.genres.join(', ')}
+                                        </p>
+                                    </div>
+                                </Link>
+                            ))}
+                        </div>
+                    )
                 ) : (
                     <div className="text-center py-20 bg-card rounded-xl border border-white/5 border-dashed">
                         <p className="text-slate-400 mb-2">Chưa có truyện nào thuộc thể loại này.</p>

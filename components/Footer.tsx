@@ -31,7 +31,7 @@ const Footer: React.FC = () => {
       <div className="container mx-auto px-4 text-center">
         <Link to="/" className="mb-4 flex justify-center items-center gap-2 group">
              {theme.logoUrl ? (
-                <img src={theme.logoUrl} alt={theme.siteName} className="h-10 w-auto transition-transform group-hover:scale-105" />
+                <img src={theme.logoUrl} alt={theme.siteName} className="h-10 w-auto transition-transform group-hover:scale-105" width="120" height="40" />
             ) : (
                 <>
                     <div className="w-6 h-6 bg-gradient-to-br from-primary to-secondary rounded-md flex items-center justify-center text-white text-xs font-bold transition-transform group-hover:scale-110">

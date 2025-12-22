@@ -1,4 +1,5 @@
-import { Comic, Genre, Chapter, Page, AdConfig, Comment, StaticPage, ThemeConfig, User, Report, MediaFile, Analytics, LeechConfig, SystemStats } from '../types';
+
+import { Comic, Genre, Chapter, Page, AdConfig, Comment, StaticPage, ThemeConfig, User, Report, MediaFile, Analytics, LeechConfig, SystemStats, DailyView } from '../types';
 import { StorageService } from './storage';
 import { API_BASE_URL, USE_MOCK_DATA } from './config';
 
@@ -75,7 +76,7 @@ const ApiService = {
     approveComment: async (id: string): Promise<boolean> => !!(await fetchApi(`/comments/${id}/approve`, { method: 'PUT' })),
     deleteComment: async (id: string): Promise<boolean> => !!(await fetchApi(`/comments/${id}`, { method: 'DELETE' })),
 
-    uploadImage: async (file: File, folder?: string, chapterNumber?: number, index?: number): Promise<string> => {
+    uploadImage: async (file: File, folder?: string, chapterNumber?: number, index?: number, overwrite?: boolean): Promise<string> => {
         const formData = new FormData();
         formData.append('image', file);
         const tokenStr = localStorage.getItem(AUTH_KEY);
@@ -84,6 +85,7 @@ const ApiService = {
         if (folder) params.set('folder', folder);
         if (chapterNumber !== undefined) params.set('chapterNumber', String(chapterNumber));
         if (index !== undefined) params.set('index', String(index));
+        if (overwrite) params.set('overwrite', 'true');
         const queryString = params.toString();
     
         try {
@@ -135,10 +137,15 @@ const ApiService = {
         const res = await fetchApi('/analytics');
         return res || { totalViews: 0, todayViews: 0, monthViews: 0 };
     },
+
+    getDailyViewsAnalytics: async (): Promise<DailyView[]> => {
+        const res = await fetchApi('/analytics/daily-views');
+        return res || [];
+    },
     
-    getSystemStats: async (): Promise<SystemStats> => {
+    getSystemStats: async (): Promise<SystemStats | null> => {
         const res = await fetchApi('/system-stats');
-        return res || { imageStorageUsed: 0, databaseRows: 0, nodeVersion: 'N/A', reactVersion: 'N/A', viteVersion: 'N/A', platform: 'N/A', arch: 'N/A' };
+        return res || null;
     },
 
     getProxiedHtml: async (url: string): Promise<string> => {
@@ -155,10 +162,32 @@ const ApiService = {
         }
     },
     
+    getImageBlob: async (imageUrl: string): Promise<Blob | null> => {
+        const token = localStorage.getItem(AUTH_KEY);
+        try {
+            const response = await fetch(`${API_BASE_URL}/proxy-image`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ url: imageUrl })
+            });
+            if (!response.ok) {
+                console.error(`API Error ${response.status} getting image blob for ${imageUrl}`);
+                return null;
+            }
+            return await response.blob();
+        } catch (error) {
+            console.error("API Network Error on getImageBlob:", error);
+            return null;
+        }
+    },
+
     // NEW: Leech Config API
     getLeechConfigs: async (): Promise<LeechConfig[]> => (await fetchApi('/leech-configs')) || [],
     saveLeechConfig: async (config: LeechConfig): Promise<boolean> => !!(await fetchApi('/leech-configs', { method: 'POST', body: JSON.stringify(config) })),
     deleteLeechConfig: async (id: string): Promise<boolean> => !!(await fetchApi(`/leech-configs/${id}`, { method: 'DELETE' })),
 };
 
-export const DataProvider = USE_MOCK_DATA ? ApiService : ApiService;
+export const DataProvider = USE_MOCK_DATA ? {} as typeof ApiService : ApiService;
