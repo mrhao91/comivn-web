@@ -1,4 +1,3 @@
-
 import { Comic, Genre, Chapter, Page, AdConfig, Comment, StaticPage, ThemeConfig, User, Report, MediaFile, Analytics, LeechConfig, SystemStats, DailyView } from '../types';
 import { StorageService } from './storage';
 import { API_BASE_URL, USE_MOCK_DATA } from './config';

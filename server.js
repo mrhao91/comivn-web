@@ -562,43 +562,30 @@ api.post('/leech', async (req, res) => {
 
 api.post('/proxy-image', authMiddleware, async (req, res) => {
     const { url } = req.body;
-
-    if (url && url.startsWith('/uploads/')) {
+    if (!url) return res.status(400).json({ error: 'Missing URL' });
+    
+    // An toàn hơn: chỉ cho phép proxy từ local uploads nếu cần
+    if (url.startsWith('/uploads/')) {
         try {
             const relativePath = path.normalize(url.substring('/uploads/'.length)).replace(/^(\.\.[\/\\])+/, '');
             const filePath = path.join(UPLOAD_ROOT, relativePath);
-
-            if (!filePath.startsWith(UPLOAD_ROOT)) {
-                return res.status(403).send('Forbidden');
-            }
-
             if (fs.existsSync(filePath)) {
-                res.sendFile(filePath, (err) => {
-                    if (err) {
-                        logError('PROXY_SENDFILE', err);
-                        res.status(500).send('Error reading file');
-                    }
-                });
-            } else {
-                res.status(404).send('File not found');
+                return res.sendFile(filePath);
             }
-        } catch (error) {
-            logError('PROXY_LOCAL_FILE', error);
-            res.status(500).send(error.message);
+        } catch(e) { /* Fallback to remote fetch */ }
+    }
+
+    try {
+        const response = await requestUrl(url);
+        if (response.statusCode === 200) {
+            res.setHeader('Content-Type', response.headers['content-type'] || 'image/jpeg');
+            res.send(response.buffer);
+        } else {
+            res.status(response.statusCode).send('Error');
         }
-    } else {
-        try {
-            const response = await requestUrl(url);
-            if (response.statusCode === 200) {
-                res.setHeader('Content-Type', response.headers['content-type'] || 'image/jpeg');
-                res.send(response.buffer);
-            } else {
-                res.status(response.statusCode).send('Error');
-            }
-        } catch (error) {
-            logError('PROXY_EXTERNAL_URL', error);
-            res.status(500).send(error.message);
-        }
+    } catch (error) {
+        logError('PROXY_IMAGE', error);
+        res.status(500).send(error.message);
     }
 });
 
