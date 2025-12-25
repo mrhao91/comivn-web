@@ -23,14 +23,19 @@ if (!fs.existsSync(UPLOAD_ROOT)) {
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const compression = require('compression');
 let mysql = null;
 let multer = null;
+let sharp = null;
 
 try { mysql = require('mysql2'); } catch(e) { console.warn("⚠️ Chưa cài mysql2"); }
 try { multer = require('multer'); } catch(e) { console.warn("⚠️ Chưa cài multer"); }
+try { sharp = require('sharp'); } catch(e) { console.warn("⚠️ Thư viện `sharp` chưa được cài. Chức năng nén ảnh sẽ bị vô hiệu hóa."); }
+
 
 dotenv.config();
 const app = express();
+app.use(compression()); // Kích hoạt Gzip
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cors({ origin: '*', optionsSuccessStatus: 200 }));
@@ -45,6 +50,36 @@ const logError = (context, err) => {
     const msg = `[${time}] [${context}] ${err.stack || err}\n`;
     console.error(msg);
     try { fs.appendFileSync(path.join(__dirname, 'server_error.log'), msg); } catch (e) {}
+};
+
+const compressImageBuffer = async (inputBuffer) => {
+    if (!sharp) return { buffer: inputBuffer, ext: '.jpg' };
+    try {
+        const image = sharp(inputBuffer);
+        const metadata = await image.metadata();
+        const originalExt = `.${metadata.format || 'jpg'}`;
+        const maxDimensions = 1200;
+
+        if (metadata.width > maxDimensions || metadata.height > maxDimensions) {
+            image.resize({
+                width: maxDimensions,
+                height: maxDimensions,
+                fit: 'inside',
+                withoutEnlargement: true,
+            });
+        }
+        
+        const outputBuffer = await image.webp({ quality: 80, reductionEffort: 6 }).toBuffer();
+        
+        if (outputBuffer.length < inputBuffer.length) {
+            return { buffer: outputBuffer, ext: '.webp' };
+        } else {
+            return { buffer: inputBuffer, ext: originalExt };
+        }
+    } catch (error) {
+        logError('SHARP_COMPRESSION', error);
+        return { buffer: inputBuffer, ext: '.jpg' };
+    }
 };
 
 const getDirectorySize = (dirPath) => {
@@ -143,20 +178,17 @@ api.post('/upload-url', authMiddleware, async (req, res) => {
         
         const response = await requestUrl(url);
         if (response.buffer && response.statusCode === 200) {
-            const contentType = response.headers['content-type'] || '';
-            let ext = '.jpg';
-            if (contentType.includes('image/png')) ext = '.png';
-            else if (contentType.includes('image/webp')) ext = '.webp';
-            
+            const { buffer: compressedBuffer, ext: newExt } = await compressImageBuffer(response.buffer);
+
             let filename;
             if (folder && chapterNumber != null && index != null) {
-                filename = `${folder}-chap${chapterNumber}-${index}${ext}`;
+                filename = `${folder}-chap${chapterNumber}-${index}${newExt}`;
             } else {
-                filename = `up-${Date.now()}-${Math.round(Math.random()*1E6)}${ext}`;
+                filename = `up-${Date.now()}-${Math.round(Math.random()*1E6)}${newExt}`;
             }
 
             const filepath = path.join(targetDir, filename);
-            fs.writeFileSync(filepath, response.buffer);
+            fs.writeFileSync(filepath, compressedBuffer);
             res.json({ success: true, url: `/uploads/${subFolder}/${filename}` });
         } else {
             res.status(400).json({ success: false, error: `HTTP ${response.statusCode}` });
@@ -168,39 +200,47 @@ api.post('/upload-url', authMiddleware, async (req, res) => {
 });
 
 if (multer) {
-    const storage = multer.diskStorage({
-        destination: (req, file, cb) => {
+    const upload = multer({ storage: multer.memoryStorage() });
+    api.post('/upload', authMiddleware, upload.single('image'), async (req, res) => {
+        if (!req.file) return res.status(400).json({error: "No file"});
+        
+        try {
+            const { buffer: compressedBuffer, ext: newExt } = await compressImageBuffer(req.file.buffer);
+
             const folder = req.query.folder || 'general';
             const subFolder = folder.replace(/[^a-z0-9-]/gi, '_');
             const targetDir = path.join(UPLOAD_ROOT, subFolder);
             if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
-            cb(null, targetDir);
-        },
-        filename: (req, file, cb) => {
-            if (req.query.overwrite === 'true') {
-                cb(null, file.originalname);
-                return;
-            }
-            const ext = path.extname(file.originalname) || '.jpg';
-            const slug = req.query.folder;
-            const chapNum = req.query.chapterNumber;
-            const index = req.query.index;
 
-            if (slug && chapNum != null && index != null) {
-                cb(null, `${slug}-chap${chapNum}-${index}${ext}`);
-            } else if (slug) {
-                cb(null, `cover${ext}`);
+            let filename;
+            const originalExt = path.extname(req.file.originalname);
+            const baseName = path.basename(req.file.originalname, originalExt);
+
+            if (req.query.overwrite === 'true' && !isNaN(parseInt(baseName))) {
+                 filename = baseName + newExt;
             } else {
-                cb(null, `up-${Date.now()}-${Math.round(Math.random()*1E6)}${ext}`);
+                const slug = req.query.folder;
+                const chapNum = req.query.chapterNumber;
+                const index = req.query.index;
+
+                if (slug && chapNum != null && index != null) {
+                    filename = `${slug}-chap${chapNum}-${index}${newExt}`;
+                } else if (slug) {
+                    filename = `cover${newExt}`;
+                } else {
+                    filename = `up-${Date.now()}-${Math.round(Math.random()*1E6)}${newExt}`;
+                }
             }
+
+            const filepath = path.join(targetDir, filename);
+            fs.writeFileSync(filepath, compressedBuffer);
+            
+            res.json({ url: `/uploads/${subFolder}/${filename}` });
+
+        } catch (error) {
+            logError('UPLOAD_PROCESSING', error);
+            res.status(500).json({ error: 'Failed to process image' });
         }
-    });
-    const upload = multer({ storage });
-    api.post('/upload', authMiddleware, upload.single('image'), (req, res) => {
-        if (!req.file) return res.status(400).json({error: "No file"});
-        const folder = req.query.folder || 'general';
-        const subFolder = folder.replace(/[^a-z0-9-]/gi, '_');
-        res.json({ url: `/uploads/${subFolder}/${req.file.filename}` });
     });
 }
 

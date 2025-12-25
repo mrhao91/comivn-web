@@ -49,6 +49,7 @@ const AdDisplay: React.FC<AdDisplayProps> = ({ position, className = '' }) => {
                         className="w-full h-auto object-cover"
                         width="400"
                         height="600"
+                        loading="lazy"
                     />
                      <div className="absolute top-0 right-0 bg-black/50 text-white text-[10px] px-2 py-0.5">AD</div>
                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors"></div>
@@ -76,6 +77,7 @@ const AdDisplay: React.FC<AdDisplayProps> = ({ position, className = '' }) => {
                     }}
                     width="1200"
                     height="250"
+                    loading="lazy"
                 />
                 <div className="absolute top-0 right-0 bg-black/50 text-white text-[10px] px-2 py-0.5">AD</div>
             </a>
