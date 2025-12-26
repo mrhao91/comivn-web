@@ -150,7 +150,7 @@ const Home: React.FC = () => {
                                 />
                                 
                                 <div className="max-w-2xl mb-2">
-                                    <span className="px-3 py-1 bg-primary text-white text-xs font-bold rounded-full mb-4 inline-block shadow-lg shadow-primary/30">
+                                    <span className="px-3 py-1 bg-primary text-dark font-bold rounded-full mb-4 inline-block shadow-lg shadow-primary/30">
                                         TOP {index + 1} NỔI BẬT
                                     </span>
                                     <h1 className="text-2xl md:text-[2rem] leading-tight font-extrabold text-white mb-4 drop-shadow-lg">
@@ -164,7 +164,7 @@ const Home: React.FC = () => {
                                     <div className="text-slate-300 text-sm md:text-base line-clamp-2 md:line-clamp-3 mb-8 max-w-lg drop-shadow-md" dangerouslySetInnerHTML={{ __html: comic.description }} />
 
                                     <div className="flex gap-3">
-                                        <Link to={readLink} className="bg-primary hover:bg-primary/90 text-white px-8 py-3 rounded-xl font-bold transition-all shadow-lg shadow-primary/25 hover:-translate-y-1">
+                                        <Link to={readLink} className="bg-primary hover:bg-primary/90 text-dark font-bold px-8 py-3 rounded-xl transition-all shadow-lg shadow-primary/25 hover:-translate-y-1">
                                             {readLabel}
                                         </Link>
                                         <Link to={`/truyen/${comic.slug || comic.id}`} className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-xl font-medium transition-all backdrop-blur-md border border-white/10">
@@ -177,10 +177,10 @@ const Home: React.FC = () => {
                     </div>
                 )})}
 
-                <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-20 bg-black/30 hover:bg-primary/80 text-white p-3 rounded-full backdrop-blur-md border border-white/10 opacity-0 group-hover:opacity-100 transition-all">
+                <button onClick={prevSlide} aria-label="Slide trước" className="absolute left-4 top-1/2 -translate-y-1/2 z-20 bg-black/30 hover:bg-primary/80 text-white p-3 rounded-full backdrop-blur-md border border-white/10 opacity-0 group-hover:opacity-100 transition-all">
                     <ChevronLeft size={24} />
                 </button>
-                <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-20 bg-black/30 hover:bg-primary/80 text-white p-3 rounded-full backdrop-blur-md border border-white/10 opacity-0 group-hover:opacity-100 transition-all">
+                <button onClick={nextSlide} aria-label="Slide tiếp theo" className="absolute right-4 top-1/2 -translate-y-1/2 z-20 bg-black/30 hover:bg-primary/80 text-white p-3 rounded-full backdrop-blur-md border border-white/10 opacity-0 group-hover:opacity-100 transition-all">
                     <ChevronRight size={24} />
                 </button>
                 
@@ -188,6 +188,7 @@ const Home: React.FC = () => {
                     {sliderComics.map((_, idx) => (
                         <button 
                             key={idx}
+                            aria-label={`Đi đến slide ${idx + 1}`}
                             onClick={() => setCurrentSlide(idx)}
                             className={`h-1.5 rounded-full transition-all duration-300 ${currentSlide === idx ? 'w-8 bg-primary' : 'w-2 bg-white/30 hover:bg-white/60'}`}
                         />

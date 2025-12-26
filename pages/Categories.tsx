@@ -98,7 +98,7 @@ const Categories: React.FC = () => {
                     <div className="flex flex-row md:flex-col gap-2 overflow-x-auto md:overflow-visible pb-2 md:pb-0 custom-scrollbar">
                         <button 
                             onClick={() => setSelectedGenre(null)}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium text-left whitespace-nowrap transition-colors ${!selectedGenre ? 'bg-primary text-white' : 'hover:bg-white/10 text-slate-300'}`}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium text-left whitespace-nowrap transition-colors ${!selectedGenre ? 'bg-primary text-dark font-bold' : 'hover:bg-white/10 text-slate-300'}`}
                         >
                             Tất cả
                         </button>
@@ -106,7 +106,7 @@ const Categories: React.FC = () => {
                             <button 
                                 key={g.id}
                                 onClick={() => setSelectedGenre(g.name)}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium text-left whitespace-nowrap transition-colors ${selectedGenre === g.name ? 'bg-primary text-white' : 'hover:bg-white/10 text-slate-300'}`}
+                                className={`px-4 py-2 rounded-lg text-sm font-medium text-left whitespace-nowrap transition-colors ${selectedGenre === g.name ? 'bg-primary text-dark font-bold' : 'hover:bg-white/10 text-slate-300'}`}
                             >
                                 {g.name}
                             </button>
@@ -136,15 +136,17 @@ const Categories: React.FC = () => {
                         <div className="flex items-center p-0.5 bg-card rounded-md border border-white/10">
                             <button
                                 title="Xem dạng lưới"
+                                aria-label="Xem dạng lưới"
                                 onClick={() => setViewMode('grid')}
-                                className={`p-1.5 rounded ${viewMode === 'grid' ? 'bg-primary text-white' : 'text-slate-400 hover:text-white'}`}
+                                className={`p-1.5 rounded ${viewMode === 'grid' ? 'bg-primary text-dark' : 'text-slate-400 hover:text-white'}`}
                             >
                                 <LayoutGrid size={18} />
                             </button>
                             <button
                                 title="Xem dạng danh sách"
+                                aria-label="Xem dạng danh sách"
                                 onClick={() => setViewMode('list')}
-                                className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-primary text-white' : 'text-slate-400 hover:text-white'}`}
+                                className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-primary text-dark' : 'text-slate-400 hover:text-white'}`}
                             >
                                 <List size={18} />
                             </button>

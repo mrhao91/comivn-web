@@ -45,22 +45,22 @@ const Footer: React.FC = () => {
         {/* Dynamic Footer Content */}
         {theme.footerContent ? (
             <div 
-                className="text-sm mb-4 prose prose-invert prose-sm max-w-none mx-auto opacity-80" 
+                className="text-sm mb-4 prose prose-invert prose-sm max-w-none mx-auto" 
                 style={{color: 'var(--footer-text)'}}
                 dangerouslySetInnerHTML={{ __html: theme.footerContent }} 
             />
         ) : (
-            <p className="text-sm mb-4 opacity-80" style={{color: 'var(--footer-text)'}}>
+            <p className="text-sm mb-4" style={{color: 'var(--footer-text)'}}>
               Thiết kế bởi Hạo Nam
             </p>
         )}
 
-        <div className="flex justify-center gap-4 text-sm mt-4 flex-wrap opacity-70">
+        <div className="flex justify-center gap-4 text-sm mt-4 flex-wrap">
             {footerMenu.map((item, idx) => (
                 <Link key={idx} to={item.url} className="hover:text-primary transition-colors" style={{color: 'var(--footer-text)'}}>{item.label}</Link>
             ))}
         </div>
-        <p className="text-xs mt-6 opacity-50" style={{color: 'var(--footer-text)'}}>
+        <p className="text-xs mt-6" style={{color: 'var(--footer-text)'}}>
           © {new Date().getFullYear()} {theme.siteName}. All rights reserved.
         </p>
       </div>

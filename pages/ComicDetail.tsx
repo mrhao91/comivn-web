@@ -246,7 +246,7 @@ const ComicDetail: React.FC = () => {
                         <div className="flex gap-3 justify-center md:justify-start">
                             {comic.chapters.length > 0 ? (
                                 <>
-                                    <Link to={getChapterLink(comic.chapters[0].number)} className="bg-primary hover:bg-primary/90 text-white px-5 py-3 rounded-xl font-bold transition-all shadow-lg shadow-primary/25 hover:-translate-y-1 flex items-center gap-2 text-sm md:text-base">
+                                    <Link to={getChapterLink(comic.chapters[0].number)} className="bg-primary hover:bg-primary/90 text-dark font-bold px-5 py-3 rounded-xl transition-all shadow-lg shadow-primary/25 hover:-translate-y-1 flex items-center gap-2 text-sm md:text-base">
                                         <BookOpen size={18}/> Đọc Từ Đầu
                                     </Link>
                                     <Link to={getChapterLink(comic.chapters[0].number)} className="bg-white/10 hover:bg-white/20 text-white px-5 py-3 rounded-xl font-bold transition-all border border-white/10 hover:-translate-y-1 flex items-center gap-2 text-sm md:text-base">
@@ -317,7 +317,7 @@ const ComicDetail: React.FC = () => {
                                             </span>
                                             {idx === 0 && chapterSearchQuery === '' && <span className="px-1.5 py-0.5 bg-red-500 text-white text-[10px] rounded font-bold uppercase">New</span>}
                                         </div>
-                                        <span className="text-xs text-slate-500 flex items-center gap-1">
+                                        <span className="text-xs text-slate-400 flex items-center gap-1">
                                             <Calendar size={12}/>
                                             {chapter.updatedAt ? new Date(chapter.updatedAt).toLocaleDateString('vi-VN') : ''}
                                         </span>
@@ -367,7 +367,7 @@ const ComicDetail: React.FC = () => {
                                 <button 
                                     type="submit" 
                                     disabled={submittingComment || !newComment.trim() || !commenterName.trim()}
-                                    className="bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors flex items-center gap-2"
+                                    className="bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-dark font-medium px-4 py-2 rounded-lg text-sm transition-colors flex items-center gap-2"
                                 >
                                     {submittingComment ? 'Đang gửi...' : <><Send size={14}/> Gửi bình luận</>}
                                 </button>

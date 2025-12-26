@@ -1,8 +1,10 @@
 
+
+
 import { Comic, Chapter, Genre, Page, AdConfig, Comment, StaticPage, ThemeConfig, User } from '../types';
 
 export const DEFAULT_THEME: ThemeConfig = {
-    primaryColor: '#d97706',
+    primaryColor: '#b45309', // Amber 700 - Đậm hơn để tăng contrast
     secondaryColor: '#78350f',
     backgroundColor: '#1c1917',
     cardColor: '#292524',
@@ -11,7 +13,7 @@ export const DEFAULT_THEME: ThemeConfig = {
     headerBg: '#1c1917',
     headerText: '#e2e8f0',
     footerBg: '#292524',
-    footerText: '#94a3b8',
+    footerText: '#cbd5e1', // Slate 300 - Sáng hơn để tăng contrast
     
     siteLayout: 'classic', // NEW: Default layout
 

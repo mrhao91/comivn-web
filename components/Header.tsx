@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Search, Menu, X, BookOpen, LayoutDashboard, LogOut, User } from 'lucide-react';
@@ -90,6 +89,7 @@ const Header: React.FC = () => {
             className="md:hidden opacity-80"
             style={{color: 'var(--header-text)'}}
             onClick={() => setIsMenuOpen(!isMenuOpen)}
+            aria-label={isMenuOpen ? 'Đóng menu' : 'Mở menu'}
         >
             {isMenuOpen ? <X /> : <Menu />}
         </button>

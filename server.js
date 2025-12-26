@@ -1,4 +1,6 @@
 
+
+
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
@@ -53,13 +55,20 @@ const logError = (context, err) => {
 };
 
 const compressImageBuffer = async (inputBuffer) => {
-    if (!sharp) return { buffer: inputBuffer, ext: '.jpg' };
+    if (!sharp) return { buffer: inputBuffer, ext: '.jpg' }; // Fallback nếu sharp chưa cài
     try {
         const image = sharp(inputBuffer);
         const metadata = await image.metadata();
+
+        // Không xử lý ảnh GIF động để giữ animation
+        if (metadata.format === 'gif' && metadata.pages > 1) {
+            return { buffer: inputBuffer, ext: '.gif' };
+        }
+        
         const originalExt = `.${metadata.format || 'jpg'}`;
         const maxDimensions = 1200;
 
+        // Thay đổi kích thước ảnh nếu quá lớn
         if (metadata.width > maxDimensions || metadata.height > maxDimensions) {
             image.resize({
                 width: maxDimensions,
@@ -69,16 +78,32 @@ const compressImageBuffer = async (inputBuffer) => {
             });
         }
         
-        const outputBuffer = await image.webp({ quality: 80, reductionEffort: 6 }).toBuffer();
+        // Tạo các phiên bản nén để so sánh
+        const candidates = [{ buffer: inputBuffer, ext: originalExt, size: inputBuffer.length }];
+
+        // Phiên bản WebP (nén mạnh hơn)
+        const webpBuffer = await image.webp({ quality: 70, reductionEffort: 6 }).toBuffer();
+        candidates.push({ buffer: webpBuffer, ext: '.webp', size: webpBuffer.length });
+
+        // Phiên bản JPEG (nén mạnh hơn), chỉ áp dụng nếu ảnh gốc không phải là ảnh có kênh alpha (PNG, GIF)
+        if (metadata.format !== 'png' && metadata.format !== 'gif') {
+            const jpegBuffer = await image.jpeg({ quality: 75, mozjpeg: true }).toBuffer();
+            candidates.push({ buffer: jpegBuffer, ext: '.jpg', size: jpegBuffer.length });
+        }
+
+        // Tìm ra phiên bản có dung lượng nhỏ nhất
+        const best = candidates.reduce((smallest, current) => current.size < smallest.size ? current : smallest);
         
-        if (outputBuffer.length < inputBuffer.length) {
-            return { buffer: outputBuffer, ext: '.webp' };
+        // Chỉ trả về phiên bản nén nếu nó thực sự nhỏ hơn bản gốc
+        if (best.size < inputBuffer.length) {
+            return { buffer: best.buffer, ext: best.ext };
         } else {
             return { buffer: inputBuffer, ext: originalExt };
         }
+
     } catch (error) {
         logError('SHARP_COMPRESSION', error);
-        return { buffer: inputBuffer, ext: '.jpg' };
+        return { buffer: inputBuffer, ext: '.jpg' }; // Fallback khi có lỗi
     }
 };
 
@@ -630,6 +655,18 @@ api.post('/proxy-image', authMiddleware, async (req, res) => {
 });
 
 app.use('/v1', api);
+
+// Handle robots.txt
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain');
+  const content = `User-agent: *
+Allow: /
+
+Sitemap: ${req.protocol}://${req.get('host')}/sitemap.xml`;
+  res.send(content);
+});
+
+
 const staticPath = path.join(__dirname, 'dist');
 app.use(express.static(staticPath));
 app.get('*', (req, res) => res.sendFile(path.join(staticPath, 'index.html')));

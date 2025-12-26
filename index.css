@@ -1,4 +1,8 @@
 
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* Default Variables (Mệnh Thổ - Earth Element Defaults) */
 :root {
   --color-primary: #d97706; /* Amber 600 - Vàng đất đậm */
@@ -9,181 +13,15 @@
   --font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
-body {
-    background-color: var(--color-darker);
-    color: #e2e8f0; /* slate-200 */
+/* Custom scrollbar styles */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
 }
-
-/* Hide scrollbar for Chrome, Safari and Opera */
-.no-scrollbar::-webkit-scrollbar {
-    display: none;
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: var(--color-dark);
 }
-/* Hide scrollbar for IE, Edge and Firefox */
-.no-scrollbar {
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
-}
-
-/* CKEditor Dark Theme Overrides */
-:root {
-    --ck-color-base-background: var(--color-dark);
-    --ck-color-base-border: rgba(255, 255, 255, 0.1);
-    --ck-color-text: #e2e8f0;
-
-    /* --- Brighter UI elements for better visibility --- */
-    --ck-color-button-default-color: #f1f5f9; /* slate-100 */
-    --ck-color-icon: #f1f5f9; /* slate-100 */
-    --ck-color-button-default-hover-color: #ffffff;
-    --ck-color-toolbar-separator: rgba(255, 255, 255, 0.2);
-    --ck-icon-opacity: 1;
-    /* --- End Brighter UI --- */
-
-    --ck-color-button-default-background: transparent;
-    --ck-color-button-default-hover-background: rgba(255, 255, 255, 0.1);
-    --ck-color-button-on-background: var(--color-primary);
-    --ck-color-button-on-hover-background: color-mix(in srgb, var(--color-primary) 90%, black);
-    --ck-color-button-on-color: white;
-
-    --ck-color-toolbar-background: var(--color-card);
-    --ck-color-toolbar-border: rgba(255, 255, 255, 0.1);
-    
-    --ck-color-dropdown-panel-background: var(--color-card);
-    --ck-color-dropdown-panel-border: rgba(255, 255, 255, 0.1);
-    --ck-color-list-background: var(--color-card);
-    --ck-color-list-button-hover-background: rgba(255, 255, 255, 0.1);
-    --ck-color-list-button-on-background: var(--color-primary);
-    --ck-color-list-button-on-background-focus: var(--color-primary);
-    --ck-color-focus-border: var(--color-primary);
-    --ck-color-input-background: var(--color-dark);
-    --ck-color-input-border: rgba(255, 255, 255, 0.1);
-    --ck-color-input-text: #e2e8f0;
-    --ck-color-input-disabled-background: rgba(255,255,255,0.05);
-    --ck-color-input-disabled-border: rgba(255,255,255,0.05);
-    --ck-color-link-default: color-mix(in srgb, var(--color-primary) 80%, white);
-    --ck-color-link-hover: var(--color-primary);
-    --ck-color-focus-ring: 1px solid var(--color-primary);
-    --ck-focus-outer-shadow-color: var(--color-primary);
-    --ck-focus-disabled-shadow: none;
-    --ck-focus-ring-width: 2px;
-}
-
-/* Custom wrapper for Decoupled Editor */
-.ck-editor-container {
-    background-color: transparent !important;
-}
-
-.ck-editor-container .ck-toolbar-container {
-    background-color: var(--color-card) !important;
-    border-bottom: 1px solid var(--ck-color-base-border) !important;
-}
-
-.ck-editor-container .ck-editor-content {
-    min-height: 200px; /* Set a default min-height */
-}
-
-/* Main editable area styles */
-.ck.ck-editor__main > .ck-editor__editable.ck-focused {
-    border: none !important;
-    box-shadow: none !important;
-}
-.ck.ck-editor__main > .ck-editor__editable:not(.ck-focused) {
-    border: none !important;
-}
-.ck.ck-editor__main > .ck-editor__editable {
-    background: var(--color-dark) !important;
-    color: var(--ck-color-text) !important; /* <--- THIS IS THE FIX FOR TEXT COLOR */
-    border-radius: 0 !important;
-    padding: 0.75rem 1rem !important;
-    line-height: 1.6;
-    font-family: var(--font-family);
-}
-
-/* Style the placeholder text */
-.ck.ck-editor__editable.ck-placeholder::before {
-    color: #a1a1aa !important; /* zinc-400 */
-    opacity: 1 !important;
-}
-
-
-/* Toolbar styles */
-.ck.ck-toolbar {
-    background: transparent !important;
-    border: none !important;
-    padding: 2px 6px !important;
-}
-.ck.ck-toolbar.ck-toolbar_grouping > .ck-toolbar__items {
-    flex-wrap: wrap; /* Allow toolbar to wrap on smaller screens */
-}
-
-.ck.ck-button:not(.ck-disabled):hover, a.ck.ck-button:not(.ck-disabled):hover {
-    background: rgba(255, 255, 255, 0.08) !important;
-}
-
-.ck.ck-button.ck-on, a.ck.ck-button.ck-on {
-    background: var(--color-primary) !important;
-    color: white !important;
-}
-
-/* Dropdown panel styles */
-.ck.ck-panel {
-    border-radius: 0.5rem !important;
-    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4) !important;
-}
-
-/* Remove the watermark */
-.ck-powered-by {
-    display: none !important;
-}
-
-/* FINAL FIX: Forcefully brighten toolbar UI elements for maximum visibility */
-.ck.ck-button .ck-icon,
-.ck.ck-dropdown .ck-dropdown__arrow,
-.ck.ck-button__label {
-  color: #f1f5f9 !important; /* slate-100, very bright */
-  opacity: 1 !important;
-}
-
-/* Pure white on hover */
-.ck.ck-button:not(.ck-disabled):hover .ck-icon,
-.ck.ck-button:not(.ck-disabled):hover .ck-button__label,
-.ck.ck-dropdown:not(.ck-disabled):hover .ck-dropdown__arrow {
-  color: #ffffff !important;
-}
-
-/* Ensure 'ON' state text/icons are pure white (redundant but safe) */
-.ck.ck-button.ck-on .ck-icon,
-.ck.ck-button.ck-on .ck-button__label {
-    color: #ffffff !important;
-}
-
-/* CKEditor Dropdown & Balloon Panel Fixes */
-.ck.ck-balloon-panel, .ck.ck-dropdown__panel {
-    background: var(--color-card) !important;
-    border-color: var(--ck-color-base-border) !important;
-}
-
-/* URL Preview Link (in balloon) */
-.ck-balloon-panel .ck-link-actions__preview a {
-    color: var(--color-primary) !important;
-}
-.ck-balloon-panel .ck-link-actions__preview a:hover {
-    text-decoration: underline;
-}
-
-/* Form Input inside balloon */
-.ck-balloon-panel .ck-input-text {
-    background-color: var(--color-dark) !important;
-    color: var(--ck-color-text) !important;
-    border-color: var(--ck-color-base-border) !important;
-}
-
-/* Icons and Labels for buttons in all panels (balloons, dropdowns, etc.) */
-.ck.ck-panel .ck-button .ck-icon,
-.ck.ck-panel .ck-button .ck-button__label {
-    color: #f1f5f9 !important;
-    opacity: 1 !important;
-}
-.ck.ck-panel .ck-button:hover .ck-icon,
-.ck.ck-panel .ck-button:hover .ck-button__label {
-    color: #ffffff !important;
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: var(--color-primary);
+    border-radius: 10px;
+    border: 2px solid var(--color-dark);
 }

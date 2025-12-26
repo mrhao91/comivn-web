@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Comic } from '../types';
@@ -46,10 +45,10 @@ const ComicCard: React.FC<ComicCardProps> = ({ comic }) => {
       </div>
       
       {/* Title */}
-      <h3 className="font-semibold text-sm md:text-base text-slate-200 line-clamp-1 group-hover:text-primary transition-colors">
+      <h3 className="font-semibold text-sm md:text-base text-slate-100 line-clamp-1 group-hover:text-primary transition-colors">
         {comic.title}
       </h3>
-      <p className="text-xs text-slate-500 mt-1 flex justify-between items-center">
+      <p className="text-xs text-slate-200 [text-shadow:0_1px_2px_rgba(0,0,0,0.5)] mt-1 flex justify-between items-center">
          <span>{comic.chapters[0]?.updatedAt ? new Date(comic.chapters[0].updatedAt).toLocaleDateString('vi-VN') : ''}</span>
       </p>
     </Link>
