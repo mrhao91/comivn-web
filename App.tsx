@@ -144,6 +144,7 @@ const NotFound = () => (
 
 const App: React.FC = () => {
   const [loginUrl, setLoginUrl] = useState('/login');
+  const [themeLoaded, setThemeLoaded] = useState(false);
 
   useEffect(() => {
     const loadTheme = async () => {
@@ -195,6 +196,7 @@ const App: React.FC = () => {
             }
             link.href = theme.favicon;
         }
+        setThemeLoaded(true);
     };
     loadTheme();
   }, []);
@@ -205,6 +207,14 @@ const App: React.FC = () => {
       }
       return <>{children}</>;
   };
+
+  if (!themeLoaded) {
+      return (
+          <div className="min-h-screen flex items-center justify-center bg-darker text-primary">
+              Đang tải ứng dụng...
+          </div>
+      );
+  }
 
   return (
     <LeechProvider>

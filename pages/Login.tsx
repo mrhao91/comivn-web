@@ -1,8 +1,12 @@
+
+
+
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthService } from '../services/auth';
 import { Lock, User, ArrowRight, ShieldCheck } from 'lucide-react';
 import AppModal, { ModalType } from '../components/AppModal';
+import SEOHead from '../components/SEOHead';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -39,7 +43,8 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-darker">
+      <SEOHead title="Đăng nhập Quản trị viên" />
       <AppModal 
         isOpen={modal.isOpen}
         type={modal.type}
@@ -48,10 +53,8 @@ const Login: React.FC = () => {
         onClose={closeModal}
       />
       <div className="w-full max-w-md bg-card border border-white/10 rounded-2xl shadow-2xl p-8 relative overflow-hidden">
-        {/* Decorative background elements */}
         <div className="absolute top-0 right-0 w-32 h-32 bg-primary/20 blur-3xl rounded-full -mr-16 -mt-16"></div>
         <div className="absolute bottom-0 left-0 w-32 h-32 bg-secondary/20 blur-3xl rounded-full -ml-16 -mb-16"></div>
-
         <div className="relative z-10">
             <div className="text-center mb-8">
                 <div className="w-16 h-16 bg-gradient-to-br from-primary to-secondary rounded-2xl mx-auto flex items-center justify-center text-white mb-4 shadow-lg shadow-primary/20">
@@ -70,7 +73,7 @@ const Login: React.FC = () => {
                             type="text" 
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
-                            className="w-full bg-dark border border-white/10 rounded-xl py-2.5 px-4 pl-10 text-white focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all"
+                            className="w-full bg-dark border border-white/10 rounded-xl py-2.5 px-4 pl-10 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all"
                             placeholder="Nhập tài khoản"
                         />
                     </div>
@@ -84,7 +87,7 @@ const Login: React.FC = () => {
                             type="password" 
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            className="w-full bg-dark border border-white/10 rounded-xl py-2.5 px-4 pl-10 text-white focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all"
+                            className="w-full bg-dark border border-white/10 rounded-xl py-2.5 px-4 pl-10 text-white placeholder-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all"
                             placeholder="Nhập mật khẩu"
                         />
                     </div>
@@ -93,7 +96,7 @@ const Login: React.FC = () => {
                 <button 
                     type="submit" 
                     disabled={loading}
-                    className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 rounded-xl shadow-lg shadow-primary/25 transition-all flex items-center justify-center gap-2 mt-6 group"
+                    className="w-full bg-primary hover:bg-primary/90 text-dark font-bold py-3 rounded-xl shadow-lg shadow-primary/25 transition-all flex items-center justify-center gap-2 mt-6 group"
                 >
                     {loading ? (
                         <span>Đang xử lý...</span>

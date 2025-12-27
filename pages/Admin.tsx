@@ -54,8 +54,13 @@ const slugify = (str: string) => {
 
 // --- GENERIC LEECH PARSERS ---
 
-const genericParseChapterImagesHtml = (html: string, config: LeechConfig) => {
+const genericParseChapterImagesHtml = (html: string, config: LeechConfig): string[] => {
     const images: string[] = [];
+    let baseUrl = config.baseUrl;
+    try {
+        baseUrl = new URL(config.baseUrl).origin;
+    } catch(e) {}
+
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const imageElements = doc.querySelectorAll(config.chapterImageSelector);
     const srcAttrs = config.imageSrcAttribute.split(',').map(s => s.trim());
@@ -69,24 +74,26 @@ const genericParseChapterImagesHtml = (html: string, config: LeechConfig) => {
 
         if (src) {
             src = src.trim();
-            try {
-                // NEW: Use URL constructor for robust relative URL resolution
-                const absoluteUrl = new URL(src, config.baseUrl).href;
-                if (!images.includes(absoluteUrl)) {
-                    images.push(absoluteUrl);
-                }
-            } catch (e) {
-                console.warn(`Invalid image URL found: ${src} on page ${config.baseUrl}`);
+            if (src.startsWith('//')) {
+                src = 'https:' + src;
+            } else if (src.startsWith('/')) {
+                src = baseUrl + src;
+            } else if (!src.startsWith('http')) {
+                src = baseUrl + '/' + src;
+            }
+            if (!images.includes(src)) {
+                images.push(src);
             }
         }
     });
 
-    return [...new Set(images)];
+    return [...new Set(images)]; // Return unique image URLs
 };
 
 
 const genericParseComicHtml = (html: string, config: LeechConfig) => {
     const doc = new DOMParser().parseFromString(html, 'text/html');
+    const origin = new URL(config.baseUrl).origin;
 
     let title = doc.querySelector(config.comicTitleSelector)?.textContent?.trim() || '';
     
@@ -95,13 +102,13 @@ const genericParseComicHtml = (html: string, config: LeechConfig) => {
     if (coverEl) {
         let src = coverEl.getAttribute('src') || coverEl.getAttribute('content');
         if (src) {
-             try {
-                // NEW: Use URL constructor for robust relative URL resolution
-                coverImage = new URL(src, config.baseUrl).href;
-            } catch (e) {
-                console.warn(`Invalid cover image URL found: ${src}`);
-                coverImage = '';
+            if (src.startsWith('//')) {
+                src = 'https:' + src;
             }
+            if (!src.startsWith('http')) {
+                src = origin + (src.startsWith('/') ? '' : '/') + src;
+            }
+            coverImage = src;
         }
     }
     
@@ -126,24 +133,30 @@ const genericParseComicHtml = (html: string, config: LeechConfig) => {
         links.forEach(a => {
             let href = a.getAttribute('href');
             if (href) {
-                 try {
-                    // NEW: Use URL constructor for robust relative URL resolution
-                    const absoluteUrl = new URL(href, config.baseUrl).href;
+                if (href.startsWith('//')) {
+                    href = 'https:' + href;
+                }
+                if (!href.startsWith('http')) {
+                    href = origin + (href.startsWith('/') ? '' : '/') + href;
+                }
 
-                    const rawText = a.textContent?.trim() || '';
-                    let number = 0;
-                    const matchText = rawText.match(/(Chapter|Chap|Chương)[\s]*(\d+(\.\d+)?)/i);
-                    if (matchText) number = parseFloat(matchText[2]);
-                    else {
-                        const matchUrl = absoluteUrl.match(/(chapter|chap)[-._/]?(\d+(\.\d+)?)/i);
-                        if (matchUrl) number = parseFloat(matchUrl[2]);
+                const rawText = a.textContent?.trim() || '';
+                let number = 0;
+                
+                const matchText = rawText.match(/(Chapter|Chap|Chương)[\s]*(\d+(\.\d+)?)/i);
+                if (matchText) {
+                    number = parseFloat(matchText[2]);
+                } else {
+                    const matchUrl = href.match(/(chapter|chap)[-._/]?(\d+(\.\d+)?)/i);
+                    if (matchUrl) {
+                        number = parseFloat(matchUrl[2]);
                     }
-                    const finalTitle = rawText || `Chapter ${number}`;
-                    if (!chapters.some(c => c.url === absoluteUrl) && number >= 0) {
-                        chapters.push({ url: absoluteUrl, title: finalTitle, number });
-                    }
-                } catch (e) {
-                    console.warn(`Invalid chapter URL found: ${href} on page ${config.baseUrl}`);
+                }
+                
+                const finalTitle = rawText || `Chapter ${number}`;
+
+                if (!chapters.some(c => c.url === href) && number >= 0) {
+                    chapters.push({ url: href, title: finalTitle, number });
                 }
             }
         });
@@ -187,7 +200,7 @@ const MenuItem = ({ id, label, icon: Icon, onClick, activeTab }: { id: string, l
         onClick={() => onClick(id)}
         className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
             activeTab === id
-            ? 'bg-primary text-white shadow-lg shadow-primary/20'
+            ? 'bg-primary text-dark font-bold'
             : 'text-slate-400 hover:bg-white/5 hover:text-white'
         }`}
     >
@@ -253,7 +266,7 @@ type ButtonProps = {
 const Button = ({ children, icon: Icon, variant = 'primary', className, ...rest }: ButtonProps) => {
     const baseClass = "px-4 py-2 rounded font-bold flex items-center gap-2 transition-all";
     const variantClasses = {
-        'primary': 'bg-primary text-white hover:bg-primary/90',
+        'primary': 'bg-primary text-dark hover:bg-primary/90',
         'secondary': 'bg-white/10 text-slate-200 hover:bg-white/20',
         'danger': 'bg-red-600 text-white hover:bg-red-700',
         'ghost': 'text-slate-400 hover:text-white'
@@ -695,10 +708,19 @@ const Admin: React.FC<{}> = () => {
 
     // Genre Actions
     const handleSaveGenre = async () => {
-        await DataProvider.saveGenre({ ...genreForm, id: genreForm.id || `g-${Date.now()}`, slug: genreForm.slug || slugify(genreForm.name) });
-        setGenreForm({ id: '', name: '', slug: '', isShowHome: false });
-        loadData();
-        showAlert('Đã lưu thể loại!');
+        try {
+            const success = await DataProvider.saveGenre({ ...genreForm, id: genreForm.id || `g-${Date.now()}`, slug: genreForm.slug || slugify(genreForm.name) });
+            if (success) {
+                showConfirm('Đã lưu thể loại!', () => {
+                    setGenreForm({ id: '', name: '', slug: '', isShowHome: false });
+                    loadData();
+                }, 'Thành công', 'alert', 'OK');
+            } else {
+                showAlert('Lưu thể loại thất bại.', 'Lỗi');
+            }
+        } catch (e: any) {
+            showAlert(`Đã xảy ra lỗi: ${e.message}`, 'Lỗi');
+        }
     };
     
     const handleDeleteGenre = (id: string) => {
@@ -710,10 +732,19 @@ const Admin: React.FC<{}> = () => {
     
     // Ad Actions
     const handleSaveAd = async () => {
-        await DataProvider.saveAd({ ...adForm, id: adForm.id || `ad-${Date.now()}` });
-        setAdForm({ id: '', position: 'home_middle', imageUrl: '', linkUrl: '', isActive: true, title: '' });
-        loadData();
-        showAlert('Đã lưu quảng cáo!');
+        try {
+            const success = await DataProvider.saveAd({ ...adForm, id: adForm.id || `ad-${Date.now()}` });
+            if (success) {
+                showConfirm('Đã lưu quảng cáo!', () => {
+                    setAdForm({ id: '', position: 'home_middle', imageUrl: '', linkUrl: '', isActive: true, title: '' });
+                    loadData();
+                }, 'Thành công', 'alert', 'OK');
+            } else {
+                showAlert('Lưu quảng cáo thất bại.', 'Lỗi');
+            }
+        } catch (e: any) {
+            showAlert(`Đã xảy ra lỗi: ${e.message}`, 'Lỗi');
+        }
     };
 
     const handleDeleteAd = (id: string) => {
@@ -741,9 +772,25 @@ const Admin: React.FC<{}> = () => {
     
     // Settings Actions
     const handleSaveSettings = async () => {
-        await DataProvider.saveTheme(themeConfig);
-        showAlert('Đã lưu cấu hình thành công!');
-        window.location.reload();
+        try {
+            const success = await DataProvider.saveTheme(themeConfig);
+            if (success) {
+                showConfirm(
+                    'Đã lưu cấu hình thành công! Một số thay đổi (như font, màu sắc, URL đăng nhập) sẽ cần tải lại trang để áp dụng đầy đủ.',
+                    () => {
+                        setLoading(true);
+                        window.location.reload();
+                    },
+                    'Lưu Thành Công',
+                    'alert',
+                    'Tải lại trang ngay'
+                );
+            } else {
+                showAlert('Lưu cấu hình thất bại. Vui lòng kiểm tra lại.', 'Lỗi');
+            }
+        } catch (e: any) {
+            showAlert(`Đã xảy ra lỗi: ${e.message}`, 'Lỗi');
+        }
     };
 
     // Static Page Actions
@@ -1201,7 +1248,7 @@ const Admin: React.FC<{}> = () => {
                             </div>
                             <div className="flex bg-dark p-1 rounded-lg border border-white/10">
                                 {(['day', 'week', 'month'] as const).map(tf => (
-                                    <button key={tf} onClick={() => setTopComicsTimeframe(tf === 'day' ? 'Hôm nay' : tf === 'week' ? 'Tuần này' : 'Tháng này')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${topComicsTimeframe.toLowerCase().startsWith(tf) ? 'bg-primary text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>{tf === 'day' ? 'Hôm nay' : tf === 'week' ? 'Tuần này' : 'Tháng này'}</button>
+                                    <button key={tf} onClick={() => setTopComicsTimeframe(tf === 'day' ? 'Hôm nay' : tf === 'week' ? 'Tuần này' : 'Tháng này')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${topComicsTimeframe.toLowerCase().startsWith(tf) ? 'bg-primary text-dark shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>{tf === 'day' ? 'Hôm nay' : tf === 'week' ? 'Tuần này' : 'Tháng này'}</button>
                                 ))}
                             </div>
                         </div>
@@ -1436,7 +1483,7 @@ const Admin: React.FC<{}> = () => {
             </div>
         );
     };
-
+    
     const renderGenres = () => (
         <div className="space-y-6">
             <DynamicHeader title="Quản lý Thể loại" />
@@ -1674,9 +1721,9 @@ const Admin: React.FC<{}> = () => {
                 <h4 className="text-sm font-bold text-slate-300 mb-2 flex justify-between">{title}<Button onClick={() => onUpdate([...menu, {label: 'New', url: '/'}])} icon={Plus} variant="secondary" className="text-xs !py-1 !px-2">Thêm</Button></h4>
                 <div className="space-y-2 max-h-48 overflow-y-auto">{menu.map((item, index) => (
                     <div key={index} className="flex gap-2 items-center"><GripVertical size={16} className="text-slate-600"/>
-                        <TextInput value={item.label} onChange={e => { const n = [...menu]; n[index].label = e.target.value; onUpdate(n); }} className="flex-1 !text-xs" />
-                        <TextInput value={item.url} onChange={e => { const n = [...menu]; n[index].url = e.target.value; onUpdate(n); }} className="flex-1 !text-xs" />
-                        <Button onClick={() => onUpdate(menu.filter((_, i) => i !== index))} variant="danger" className="!p-1.5"><Trash2 size={14}/></Button>
+                        <TextInput value={item.label} onChange={e => handleMenuChange('headerMenu', index, 'label', e.target.value)} className="flex-1 !text-xs" />
+                        <TextInput value={item.url} onChange={e => handleMenuChange('headerMenu', index, 'url', e.target.value)} className="flex-1 !text-xs" />
+                        <Button onClick={() => handleRemoveMenuItem('headerMenu', index)} variant="danger" className="!p-1.5"><Trash2 size={14}/></Button>
                     </div>))}
                 </div>
             </div>
@@ -1746,8 +1793,8 @@ const Admin: React.FC<{}> = () => {
                     <div className="space-y-6 flex flex-col">
                         <Card className="p-6">
                             <SubHeader title="Cấu hình Menu" icon={Menu} />
-                            <MenuEditor menu={themeConfig.headerMenu || []} onUpdate={(m) => setThemeConfig(p=>({...p, headerMenu: m}))} title="Menu Header (Trên cùng)" />
-                            <MenuEditor menu={themeConfig.footerMenu || []} onUpdate={(m) => setThemeConfig(p=>({...p, footerMenu: m}))} title="Menu Footer (Chân trang)" />
+                            <MenuEditor menu={themeConfig.headerMenu || []} onUpdate={(m) => handleMenuChange('headerMenu', 0, 'label', m[0].label)} title="Menu Header (Trên cùng)" />
+                            <MenuEditor menu={themeConfig.footerMenu || []} onUpdate={(m) => handleMenuChange('footerMenu', 0, 'label', m[0].label)} title="Menu Footer (Chân trang)" />
                         </Card>
                         <Card className="p-6 space-y-4">
                             <SubHeader title="Cấu hình SEO" icon={Globe} />
@@ -1808,7 +1855,7 @@ const Admin: React.FC<{}> = () => {
                         <button title="Lưới nhỏ" onClick={() => setMediaViewMode('tiles')} className={`p-1.5 rounded ${mediaViewMode === 'tiles' ? 'bg-primary text-white' : 'text-slate-400 hover:bg-white/10'}`}><LayoutGrid size={18} /></button>
                         <button title="Danh sách" onClick={() => setMediaViewMode('list')} className={`p-1.5 rounded ${mediaViewMode === 'list' ? 'bg-primary text-white' : 'text-slate-400 hover:bg-white/10'}`}><List size={18} /></button>
                     </div>
-                    <label className={`px-4 py-2 rounded font-bold flex items-center gap-2 transition-all bg-primary text-white ${isUploadingFile ? 'opacity-50 cursor-wait' : 'hover:bg-primary/90 cursor-pointer'}`}>
+                    <label className={`px-4 py-2 rounded font-bold flex items-center gap-2 transition-all bg-primary text-dark ${isUploadingFile ? 'opacity-50 cursor-wait' : 'hover:bg-primary/90 cursor-pointer'}`}>
                         <input type="file" multiple accept="image/*" className="hidden" ref={mediaInputRef} onChange={handleMediaFileUpload} disabled={isUploadingFile} />
                         {isUploadingFile ? <RefreshCw size={16} className="animate-spin" /> : <Upload size={16} />}
                         {isUploadingFile ? (uploadProgressText || 'Đang xử lý...') : 'Upload Ảnh'}
