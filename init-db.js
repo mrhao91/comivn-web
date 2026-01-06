@@ -1,4 +1,5 @@
 
+
 const mysql = require('mysql2');
 const dotenv = require('dotenv');
 const crypto = require('crypto');
@@ -17,7 +18,7 @@ const dbConfig = {
     charset: 'utf8mb4'
 };
 
-if (process.env.DB_HOST !== 'localhost' && process.env.DB_HOST !== '127.0.0.1') {
+if (process.env.DB_HOST && process.env.DB_HOST !== 'localhost' && process.env.DB_HOST !== '127.0.0.1') {
     dbConfig.ssl = { rejectUnauthorized: false };
 }
 
@@ -46,13 +47,14 @@ const createTables = async () => {
             author VARCHAR(255),
             status VARCHAR(50),
             genres TEXT,
-            description TEXT,
+            description LONGTEXT,
             views INT DEFAULT 0,
             isRecommended BOOLEAN DEFAULT FALSE,
             metaTitle VARCHAR(255),
             metaDescription TEXT,
             metaKeywords TEXT,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX(slug)
         ) ${tableOptions}`,
 
         // Bảng Chapter
@@ -62,7 +64,8 @@ const createTables = async () => {
             number FLOAT,
             title VARCHAR(255),
             updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (comicId) REFERENCES comics(id) ON DELETE CASCADE
+            FOREIGN KEY (comicId) REFERENCES comics(id) ON DELETE CASCADE,
+            INDEX(comicId, number)
         ) ${tableOptions}`,
 
         // Bảng Ảnh Chapter
@@ -79,10 +82,7 @@ const createTables = async () => {
             id VARCHAR(255) PRIMARY KEY,
             name VARCHAR(255),
             slug VARCHAR(255),
-            isShowHome BOOLEAN DEFAULT FALSE,
-            metaTitle VARCHAR(255),
-            metaDescription TEXT,
-            metaKeywords TEXT
+            isShowHome BOOLEAN DEFAULT FALSE
         ) ${tableOptions}`,
 
         // Bảng Quảng cáo
@@ -92,7 +92,8 @@ const createTables = async () => {
             imageUrl TEXT,
             linkUrl TEXT,
             isActive BOOLEAN DEFAULT TRUE,
-            title VARCHAR(255)
+            title VARCHAR(255),
+            scriptCode TEXT
         ) ${tableOptions}`,
 
         // Bảng Cấu hình Giao diện
@@ -105,16 +106,13 @@ const createTables = async () => {
         `CREATE TABLE IF NOT EXISTS static_pages (
             slug VARCHAR(255) PRIMARY KEY,
             title VARCHAR(255),
-            content LONGTEXT,
-            metaTitle VARCHAR(255),
-            metaDescription TEXT,
-            metaKeywords TEXT
+            content LONGTEXT
         ) ${tableOptions}`,
 
         // Bảng Admin User
         `CREATE TABLE IF NOT EXISTS users (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(50) NOT NULL,
+            username VARCHAR(50) NOT NULL UNIQUE,
             password VARCHAR(255) NOT NULL,
             role VARCHAR(20) DEFAULT 'editor',
             permissions TEXT,
@@ -130,7 +128,7 @@ const createTables = async () => {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ${tableOptions}`,
 
-        // Bảng Bình luận (Đảm bảo bảng này được tạo)
+        // Bảng Bình luận
         `CREATE TABLE IF NOT EXISTS comments (
             id VARCHAR(255) PRIMARY KEY,
             comicId VARCHAR(255),
@@ -171,9 +169,12 @@ const createTables = async () => {
 
     for (const query of queries) {
         await new Promise((resolve) => {
+            const tableName = query.match(/CREATE TABLE IF NOT EXISTS `?(\w+)`?/);
+            const queryName = tableName ? `Tạo bảng ${tableName[1]}` : 'Chèn dữ liệu';
+
             connection.query(query, (err) => {
-                if (err) console.error('❌ Lỗi query:', err.message);
-                else console.log('✅ Query OK');
+                if (err) console.error(`❌ Lỗi [${queryName}]:`, err.message);
+                else console.log(`✅ [${queryName}] OK`);
                 resolve();
             });
         });

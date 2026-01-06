@@ -1,3 +1,4 @@
+
 export interface Chapter {
   id: string;
   comicId: string;
@@ -48,6 +49,7 @@ export interface AdConfig {
   linkUrl: string;
   isActive: boolean;
   title?: string;
+  scriptCode?: string;
 }
 
 export interface Comment {

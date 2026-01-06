@@ -166,6 +166,7 @@ const genericParseComicHtml = (html: string, config: LeechConfig) => {
 };
 
 const initialComicForm: Comic = { id: '', title: '', coverImage: '', author: '', status: 'Đang tiến hành', genres: [], description: '', views: 0, chapters: [], isRecommended: false, slug: '', metaTitle: '', metaDescription: '', metaKeywords: '' };
+const initialAdForm: AdConfig = { id: '', position: 'home_middle', imageUrl: '', linkUrl: '', isActive: true, title: '', scriptCode: '' };
 const initialLeechConfigForm: LeechConfig = { id: '', name: '', baseUrl: '', comicTitleSelector: 'h1', comicCoverSelector: 'img.book_avatar', comicAuthorSelector: '', uploadCoverImage: false, comicDescriptionSelector: '.detail-content', chapterLinkSelector: '.list-chapter a', chapterImageSelector: '.page-chapter img', imageSrcAttribute: 'src,data-src' };
 const initialUserForm: User = { id: '', username: '', password: '', role: 'editor', permissions: [] };
 
@@ -195,7 +196,16 @@ const MEDIA_PAGE_SIZE = 48; // NEW: Phân trang thư viện ảnh
 
 // --- HELPER COMPONENTS (MOVED OUTSIDE ADMIN TO FIX RE-RENDER FOCUS LOSS) ---
 
-const MenuItem = ({ id, label, icon: Icon, onClick, activeTab }: { id: string, label: string, icon: React.ElementType, onClick: (id: any) => void, activeTab: string }) => (
+// FIX: Define a type for MenuItem props to solve issue with `key` prop in .map()
+type MenuItemProps = {
+    id: string;
+    label: string;
+    icon: React.ElementType;
+    onClick: (id: any) => void;
+    activeTab: string;
+};
+
+const MenuItem = ({ id, label, icon: Icon, onClick, activeTab }: MenuItemProps) => (
     <button
         onClick={() => onClick(id)}
         className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
@@ -235,13 +245,19 @@ const SubHeader = ({ title, icon: Icon, children }: {title: string, icon: React.
     </h3>
 );
 
-const Card = ({ children, className = '' }: {children: React.ReactNode, className?: string}) => (
+// FIX: Define props type for Card to make children optional and allow `key` prop.
+type CardProps = {
+    children?: React.ReactNode;
+    className?: string;
+};
+const Card = ({ children, className = '' }: CardProps) => (
     <div className={`bg-card border border-white/10 rounded-xl ${className}`}>
         {children}
     </div>
 );
 
-const InputGroup = ({ label, children }: {label: string, children: React.ReactNode}) => (
+// FIX: Make children optional for InputGroup
+const InputGroup = ({ label, children }: {label: string, children?: React.ReactNode}) => (
     <div>
         <label className="text-xs text-slate-400 block mb-1">{label}</label>
         {children}
@@ -337,6 +353,8 @@ const Admin: React.FC<{}> = () => {
     const [isEditing, setIsEditing] = useState(false);
     const [isUploadingFile, setIsUploadingFile] = useState(false);
     const [isScanning, setIsScanning] = useState(false);
+    const [adFormType, setAdFormType] = useState<'image' | 'script'>('image');
+
 
     // Refs
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -353,7 +371,7 @@ const Admin: React.FC<{}> = () => {
     const [isEditingChapter, setIsEditingChapter] = useState(false);
     const [chapterForm, setChapterForm] = useState<{id: string, title: string, number: number, pagesContent: string}>({ id: '', title: '', number: 0, pagesContent: '' });
     const [genreForm, setGenreForm] = useState<Genre>({ id: '', name: '', slug: '', isShowHome: false });
-    const [adForm, setAdForm] = useState<AdConfig>({ id: '', position: 'home_middle', imageUrl: '', linkUrl: '', isActive: true, title: '' });
+    const [adForm, setAdForm] = useState<AdConfig>(initialAdForm);
     const [userForm, setUserForm] = useState<User>(initialUserForm);
     const [staticForm, setStaticForm] = useState<StaticPage>({ slug: '', title: '', content: '' });
     const [leechConfigForm, setLeechConfigForm] = useState<LeechConfig>(initialLeechConfigForm);
@@ -731,12 +749,29 @@ const Admin: React.FC<{}> = () => {
     };
     
     // Ad Actions
+    const handleEditAd = (ad: AdConfig) => {
+        setAdForm(ad);
+        setAdFormType(ad.scriptCode ? 'script' : 'image');
+    };
+    
+    const handleResetAdForm = () => {
+        setAdForm(initialAdForm);
+        setAdFormType('image');
+    };
+    
     const handleSaveAd = async () => {
         try {
-            const success = await DataProvider.saveAd({ ...adForm, id: adForm.id || `ad-${Date.now()}` });
+            let adToSave = { ...adForm, id: adForm.id || `ad-${Date.now()}` };
+            if (adFormType === 'image') {
+                adToSave.scriptCode = '';
+            } else {
+                adToSave.imageUrl = '';
+                adToSave.linkUrl = '';
+            }
+            const success = await DataProvider.saveAd(adToSave);
             if (success) {
                 showConfirm('Đã lưu quảng cáo!', () => {
-                    setAdForm({ id: '', position: 'home_middle', imageUrl: '', linkUrl: '', isActive: true, title: '' });
+                    handleResetAdForm();
                     loadData();
                 }, 'Thành công', 'alert', 'OK');
             } else {
@@ -1126,7 +1161,7 @@ const Admin: React.FC<{}> = () => {
                         }
                         break;
                     case 'genres': if (genreForm.name.trim()) handleSaveGenre(); break;
-                    case 'ads': if (adForm.imageUrl.trim()) handleSaveAd(); break;
+                    case 'ads': if (adForm.imageUrl.trim() || adForm.scriptCode?.trim()) handleSaveAd(); break;
                     case 'users': if (userForm.username.trim() && (userForm.id || userForm.password)) handleSaveUser(); break;
                     case 'static': if (staticForm.title.trim()) handleSaveStatic(); break;
                     case 'settings': handleSaveSettings(); break;
@@ -1206,7 +1241,8 @@ const Admin: React.FC<{}> = () => {
                 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <Card className="lg:col-span-1 p-6 flex flex-col gap-6">
-                        <SubHeader title="Tổng quan lượt xem" icon={Activity} />
+                        <SubHeader title="Tổng quan lượt xem" icon={Activity}>
+                        </SubHeader>
                         <div className="bg-gradient-to-br from-indigo-900/40 to-purple-900/40 border border-indigo-500/20 rounded-xl p-6 text-center">
                             <span className="text-slate-400 text-sm uppercase tracking-wider">Tổng lượt xem trang web</span>
                             <div className="text-4xl lg:text-5xl font-extrabold text-white mt-2 mb-1 drop-shadow-lg">{analytics.totalViews.toLocaleString()}</div>
@@ -1285,7 +1321,8 @@ const Admin: React.FC<{}> = () => {
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <Card className="p-6">
-                        <SubHeader title="Trạng thái hệ thống" icon={HardDrive} />
+                        <SubHeader title="Trạng thái hệ thống" icon={HardDrive}>
+                        </SubHeader>
                         {systemStats ? (
                              <div className="space-y-3">
                                  <div className="flex justify-between items-center text-sm"><span className="text-slate-400">Dung lượng ảnh</span><span className="text-white font-semibold">{formatFileSize(storageUsed)}</span></div>
@@ -1302,7 +1339,8 @@ const Admin: React.FC<{}> = () => {
                         ) : <p className="text-sm text-slate-500">Đang tải thông số...</p>}
                     </Card>
                      <Card className="p-6">
-                        <SubHeader title="Vừa cập nhật" icon={Clock} />
+                        <SubHeader title="Vừa cập nhật" icon={Clock}>
+                        </SubHeader>
                         <div className="space-y-3">
                             {latest5Comics.slice(0, 3).map(comic => (
                                 <div key={comic.id} className="flex gap-3 items-center p-2 hover:bg-white/5 rounded-lg transition-colors cursor-pointer" onClick={() => { setActiveTab('comics'); handleEditComic(comic.id); }}>
@@ -1527,16 +1565,50 @@ const Admin: React.FC<{}> = () => {
                             </SelectInput>
                             <p className="text-[10px] text-primary mt-1">{AD_DIMENSIONS[adForm.position]}</p>
                         </InputGroup>
-                        <InputGroup label="Ảnh Banner">
-                            <div className="flex gap-2">
-                                <TextInput type="text" value={adForm.imageUrl} onChange={e => setAdForm({ ...adForm, imageUrl: e.target.value })} placeholder="URL ảnh" />
-                                <label className="bg-blue-600 hover:bg-blue-700 p-2 rounded text-white cursor-pointer"><input type="file" className="hidden" onChange={e => handleFileUpload(e, 'ad')} /><Upload size={16} /></label>
+                        <InputGroup label="Loại Quảng cáo">
+                            <div className="flex gap-2 p-1 bg-dark rounded-lg border border-white/10 w-fit">
+                                <button
+                                    type="button"
+                                    onClick={() => setAdFormType('image')}
+                                    className={`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${adFormType === 'image' ? 'bg-primary text-dark shadow' : 'text-slate-300 hover:bg-white/10'}`}
+                                >
+                                    Ảnh Banner
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setAdFormType('script')}
+                                    className={`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${adFormType === 'script' ? 'bg-primary text-dark shadow' : 'text-slate-300 hover:bg-white/10'}`}
+                                >
+                                    Mã Script
+                                </button>
                             </div>
                         </InputGroup>
-                        <InputGroup label="Link Đích"><TextInput type="text" value={adForm.linkUrl} onChange={e => setAdForm({ ...adForm, linkUrl: e.target.value })} /></InputGroup>
+                        {adFormType === 'image' ? (
+                            <>
+                                <InputGroup label="Ảnh Banner">
+                                    <div className="flex gap-2">
+                                        <TextInput type="text" value={adForm.imageUrl} onChange={e => setAdForm({ ...adForm, imageUrl: e.target.value })} placeholder="URL ảnh" />
+                                        <label className="bg-blue-600 hover:bg-blue-700 p-2 rounded text-white cursor-pointer"><input type="file" className="hidden" onChange={e => handleFileUpload(e, 'ad')} /><Upload size={16} /></label>
+                                    </div>
+                                </InputGroup>
+                                <InputGroup label="Link Đích"><TextInput type="text" value={adForm.linkUrl} onChange={e => setAdForm({ ...adForm, linkUrl: e.target.value })} /></InputGroup>
+                            </>
+                        ) : (
+                            <InputGroup label="Mã Script Quảng Cáo">
+                                <textarea
+                                    value={adForm.scriptCode || ''}
+                                    onChange={e => setAdForm({ ...adForm, scriptCode: e.target.value })}
+                                    className="w-full bg-dark border border-white/10 rounded p-2 text-white h-24 font-mono text-xs"
+                                    placeholder="Dán mã script quảng cáo ở đây (VD: Google AdSense)"
+                                />
+                                <p className="text-[10px] text-slate-500 mt-1">
+                                    * Hệ thống sẽ ưu tiên hiển thị quảng cáo bằng script.
+                                </p>
+                            </InputGroup>
+                        )}
                         <label className="flex items-center gap-2 text-slate-300"><input type="checkbox" checked={adForm.isActive} onChange={e => setAdForm({ ...adForm, isActive: e.target.checked })} /> Kích hoạt</label>
                         <div className="flex justify-end gap-2 pt-2">
-                            <Button onClick={() => setAdForm({ id: '', position: 'home_middle', imageUrl: '', linkUrl: '', isActive: true, title: '' })} variant="secondary">Reset</Button>
+                            <Button onClick={handleResetAdForm} variant="secondary">Reset</Button>
                             <Button onClick={handleSaveAd}>Lưu Ad</Button>
                         </div>
                     </div>
@@ -1544,13 +1616,19 @@ const Admin: React.FC<{}> = () => {
                 <div className="lg:col-span-2 space-y-4">
                     {ads.map(ad => (
                         <Card key={ad.id} className="p-3 flex gap-4 items-center">
-                            <img src={ad.imageUrl} alt="" className="w-24 h-16 object-cover rounded bg-black" />
-                            <div className="flex-1">
-                                <div className="font-bold text-white text-sm">{ad.title || 'No Title'} <span className="text-xs font-normal text-slate-400">({ad.position})</span></div>
-                                <div className="text-xs text-slate-500 truncate">{ad.linkUrl}</div>
+                            {ad.scriptCode ? (
+                                <div className="w-24 h-16 rounded bg-black flex items-center justify-center text-slate-500">
+                                    <Code size={24} />
+                                </div>
+                            ) : (
+                                <img src={ad.imageUrl} alt="" className="w-24 h-16 object-cover rounded bg-black" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                                <div className="font-bold text-white text-sm">{ad.title || 'Chưa có tiêu đề'} <span className="text-xs font-normal text-slate-400">({ad.position})</span></div>
+                                <div className="text-xs text-slate-500 truncate">{ad.scriptCode ? 'Sử dụng mã script' : ad.linkUrl}</div>
                             </div>
                             <div className="flex items-center gap-2">
-                                <Button onClick={() => setAdForm(ad)} variant="ghost"><Edit size={16} /></Button>
+                                <Button onClick={() => handleEditAd(ad)} variant="ghost"><Edit size={16} /></Button>
                                 <Button onClick={() => handleDeleteAd(ad.id)} variant="ghost" className="text-red-400"><Trash2 size={16} /></Button>
                             </div>
                         </Card>
@@ -1607,7 +1685,8 @@ const Admin: React.FC<{}> = () => {
                         </Card>
                     ) : (
                         <Card className="lg:col-span-1 p-6 h-fit">
-                            <SubHeader title="Đổi Mật khẩu" icon={KeyRound} />
+                            <SubHeader title="Đổi Mật khẩu" icon={KeyRound}>
+                            </SubHeader>
                             <div className="space-y-4">
                                 <InputGroup label="Mật khẩu mới"><TextInput type="password" placeholder="Nhập mật khẩu mới..." value={editorPasswordForm.password} onChange={e => setEditorPasswordForm({ password: e.target.value })} /></InputGroup>
                                 <div className="flex justify-end gap-2 pt-2"><Button onClick={handleUpdatePassword} className="w-full !justify-center">Lưu Mật khẩu</Button></div>
@@ -1672,7 +1751,8 @@ const Admin: React.FC<{}> = () => {
             <div className="space-y-8">
                 <DynamicHeader title="Quản lý Bình luận"><Button onClick={loadData} icon={RefreshCw} disabled={loading}>{loading ? 'Đang tải...' : 'Làm mới'}</Button></DynamicHeader>
                 <Card className="p-6">
-                    <SubHeader title={`Chờ duyệt (${pending.length})`} icon={Clock} />
+                    <SubHeader title={`Chờ duyệt (${pending.length})`} icon={Clock}>
+                    </SubHeader>
                     <div className="space-y-4">
                         {pending.map(c => (
                             <div key={c.id} className="bg-dark border border-white/10 rounded-lg p-4 flex flex-col md:flex-row gap-4 items-start">
@@ -1693,7 +1773,8 @@ const Admin: React.FC<{}> = () => {
                     </div>
                 </Card>
                 <Card className="p-6">
-                    <SubHeader title={`Đã duyệt (${approved.length})`} icon={CheckCircle} />
+                    <SubHeader title={`Đã duyệt (${approved.length})`} icon={CheckCircle}>
+                    </SubHeader>
                     <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
                         {approved.map(c => (
                             <div key={c.id} className="bg-dark/50 border border-white/5 rounded-lg p-4 flex justify-between items-start">
@@ -1736,7 +1817,8 @@ const Admin: React.FC<{}> = () => {
                 </DynamicHeader>
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                     <Card className="p-6 space-y-5">
-                        <SubHeader title="Giao diện & Bố cục" icon={Palette} />
+                        <SubHeader title="Giao diện & Bố cục" icon={Palette}>
+                        </SubHeader>
                         <div className="space-y-5">
                             <div className="grid grid-cols-2 gap-4">
                                 <InputGroup label="Màu Chủ Đạo"><div className="flex items-center gap-2"><input type="color" name="primaryColor" value={themeConfig.primaryColor} onChange={handleThemeColorChange} className="h-8 w-8 rounded cursor-pointer bg-transparent border-none p-0"/><span className="text-xs text-slate-500">{themeConfig.primaryColor}</span></div></InputGroup>
@@ -1792,19 +1874,21 @@ const Admin: React.FC<{}> = () => {
                     </Card>
                     <div className="space-y-6 flex flex-col">
                         <Card className="p-6">
-                            <SubHeader title="Cấu hình Menu" icon={Menu} />
+                            <SubHeader title="Cấu hình Menu" icon={Menu}>
+                            </SubHeader>
                             <MenuEditor menu={themeConfig.headerMenu || []} onUpdate={(m) => handleMenuChange('headerMenu', 0, 'label', m[0].label)} title="Menu Header (Trên cùng)" />
                             <MenuEditor menu={themeConfig.footerMenu || []} onUpdate={(m) => handleMenuChange('footerMenu', 0, 'label', m[0].label)} title="Menu Footer (Chân trang)" />
                         </Card>
                         <Card className="p-6 space-y-4">
-                            <SubHeader title="Cấu hình SEO" icon={Globe} />
+                            <SubHeader title="Cấu hình SEO" icon={Globe}>
+                            </SubHeader>
                             <div>
                                 <h4 className="text-xs font-bold text-primary uppercase mb-2">Trang Chủ</h4>
-                                <div className="space-y-2"><TextInput type="text" placeholder="Meta Title" name="homeMetaTitle" value={themeConfig.homeMetaTitle || ''} onChange={handleThemeFieldChange} className="text-sm" /><textarea placeholder="Meta Description" name="homeMetaDescription" value={themeConfig.homeMetaDescription || ''} onChange={handleThemeFieldChange} className="w-full bg-dark border border-white/10 rounded p-2 text-white text-sm h-16" /></div>
+                                <div className="space-y-2"><InputGroup label="Meta Title"><TextInput type="text" placeholder="Meta Title" name="homeMetaTitle" value={themeConfig.homeMetaTitle || ''} onChange={handleThemeFieldChange} className="text-sm" /></InputGroup><InputGroup label="Meta Description"><textarea placeholder="Meta Description" name="homeMetaDescription" value={themeConfig.homeMetaDescription || ''} onChange={handleThemeFieldChange} className="w-full bg-dark border border-white/10 rounded p-2 text-white text-sm h-16" /></InputGroup></div>
                             </div>
                             <div className="border-t border-white/5 pt-3">
                                 <h4 className="text-xs font-bold text-primary uppercase mb-2">Trang Danh Sách Thể Loại</h4>
-                                <div className="space-y-2"><TextInput type="text" placeholder="Meta Title" name="categoriesMetaTitle" value={themeConfig.categoriesMetaTitle || ''} onChange={handleThemeFieldChange} className="text-sm" /><textarea placeholder="Meta Description" name="categoriesMetaDescription" value={themeConfig.categoriesMetaDescription || ''} onChange={handleThemeFieldChange} className="w-full bg-dark border border-white/10 rounded p-2 text-white text-sm h-16" /></div>
+                                <div className="space-y-2"><InputGroup label="Meta Title"><TextInput type="text" placeholder="Meta Title" name="categoriesMetaTitle" value={themeConfig.categoriesMetaTitle || ''} onChange={handleThemeFieldChange} className="text-sm" /></InputGroup><InputGroup label="Meta Description"><textarea placeholder="Meta Description" name="categoriesMetaDescription" value={themeConfig.categoriesMetaDescription || ''} onChange={handleThemeFieldChange} className="w-full bg-dark border border-white/10 rounded p-2 text-white text-sm h-16" /></InputGroup></div>
                             </div>
                         </Card>
                         <Card className="p-6 flex-1"><h3 className="font-bold text-white border-b border-white/10 pb-2 mb-4">Footer Content (HTML/Text)</h3><SimpleEditor value={themeConfig.footerContent || ''} onChange={val => setThemeConfig(p => ({ ...p, footerContent: val }))} height="150px" /></Card>
